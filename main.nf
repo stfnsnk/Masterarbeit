@@ -2,40 +2,23 @@
 
 nextflow.enable.dsl=2
 
-params.reads = "$baseDir/*.fastq.gz"
-params.hisat2_index = "$baseDir/ref_genome_grcm38/grcm38_snp_tran.tar.gz"
+//params.reads = "$baseDir/*.fastq.gz"
 //params.hisat2_indexfiles ="$baseDir/ref_genome_grcm38/grcm38_snptran"
 
 log.info """\
-         reads:        ${params.reads}
+         reads: ${params.reads}
          hisat2_index: ${params.hisat2_index}
          """
          .stripIndent()
 
-process UNCOMPRESS_GENOTYPE_INDEX {
-
-  tag "$hisat2_index_ch.baseName"
-
-  input:
-  path(hisat2_index_ch)
-
-  output:
-  path('*')
-
-  script:
-  """
-  tar xvzf $hisat2_index_ch
-  """
-
-}
 
 process HISAT2 {
 
   tag "$reads.baseName"
-  //container 'quay.io/biocontainers/hisat2:2.2.1--h1b792b2_3'
+  
+  container "${params.container_hisat}"
 
   input:
-  path(hisat2_indices)
   path(reads)
 
   output:
@@ -43,7 +26,7 @@ process HISAT2 {
 
   script:
   """
-  hisat2 -x $hisat2_indices \
+  hisat2 -x "${params.hisat2_index}" \
          -U $reads \
          > ${reads.baseName}.sam
   """
@@ -53,26 +36,16 @@ process HISAT2 {
 workflow {
 
   Channel
-    .fromPath( params.reads )
+    .fromPath( '/home/stefan/Dokumente/BIOINF22/Masterarbeit/Github/HISAT_versuch/*.fastq.gz' )
     .ifEmpty { exit 1, "reads was empty - no input files supplied" }
     .set { reads_ch }
 
-//   Channel.fromPath( params.hisat2_index )
-//     .ifEmpty { exit 1, "hisat2_index was empty - no input file supplied" }
-//     .set { hisat2_index_ch }
+  //CHannel für Index Files überhaupt nötig?
+  // Channel.fromPath( '/home/stefan/Dokumente/BIOINF22/Masterarbeit/Github/HISAT_versuch/genome_snp_tran/*.ht2' )
+  //   .ifEmpty{ exit 1, "no hisat2 index was found - no input files supplied" }
+  //   .set( hisat2_index_ch )
 
-  Channel
-    .fromPath( params.hisat2_index )
-    
-
-
- // UNCOMPRESS_GENOTYPE_INDEX(hisat2_index_ch)
-
-  HISAT2(UNCOMPRESS_GENOTYPE_INDEX.out, reads_ch)
-
-  //Command error:
-  //(ERR): "grch38" does not exist
-  //Exiting now ...
+  HISAT2( reads_ch)
 
 }
 
