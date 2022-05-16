@@ -17,6 +17,7 @@ process HISAT2 {
   tag "$reads.baseName"
   
   container "${params.container_hisat}"
+  publishDir "$params.out_dir/hisat/", mode: 'move'
 
   input:
   path(reads)
@@ -26,26 +27,20 @@ process HISAT2 {
 
   script:
   """
-  hisat2 -x "${params.hisat2_index}" \
+  hisat2 -x $params.hisat2_index \
          -U $reads \
-         > ${reads.baseName}.sam
+         > ${reads.name.replaceAll('.fastq.gz','')}.sam
   """
 
 }
 
 workflow {
 
-  Channel
-    .fromPath( '/home/stefan/Dokumente/BIOINF22/Masterarbeit/Github/HISAT_versuch/*.fastq.gz' )
-    .ifEmpty { exit 1, "reads was empty - no input files supplied" }
-    .set { reads_ch }
-
-  //CHannel für Index Files überhaupt nötig?
-  // Channel.fromPath( '/home/stefan/Dokumente/BIOINF22/Masterarbeit/Github/HISAT_versuch/genome_snp_tran/*.ht2' )
-  //   .ifEmpty{ exit 1, "no hisat2 index was found - no input files supplied" }
-  //   .set( hisat2_index_ch )
-
-  HISAT2( reads_ch)
+  Channel 
+    .fromPath("${params.reads}/*.{fastq,fastq.gz}", checkIfExists: true)
+    .set{reads_ch}
+    
+  HISAT2(reads_ch)
 
 }
 
