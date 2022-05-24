@@ -13,10 +13,10 @@ process hisat_version {
 
 }
 
-process test {
+process first_line {
 
     tag "${reads.name.replaceAll('.fastq.gz','')}"
-    publishDir "$params.out_dir/test/", mode: 'move'
+    publishDir "$params.out_dir/firstlines/", mode: 'move'
 
     input:
     path reads
@@ -26,7 +26,7 @@ process test {
     
     script:
     """
-    zcat $reads | head -1 > firstlines_${reads.name.replaceAll('.fastq.gz','')}.txt
+    zcat $reads | head -1 > firstline_${reads.name.replaceAll('.fastq.gz','')}.txt
     """
 
 }
@@ -35,14 +35,14 @@ process test {
 
 workflow {
 
-    println ("Hy starting my first workflow with" + params.container_hisat)
-    println ("with the reads from " + params.reads)
+    println ("Hy starting my first workflow with " + params.container_hisat)
+    println ("with the reads from " + params.reads_folder)
     Channel
-        .fromPath("${params.reads}/*.{fastq,fastq.gz}", checkIfExists: true)
+        .fromPath("${params.reads_folder}/*.{fastq,fastq.gz}", type: 'file', checkIfExists: true)
         .view()
         .set{ reads_ch }
 
-    test(reads_ch)
+    first_line(reads_ch)
     //hisat_version()
     
 }
