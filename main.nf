@@ -16,43 +16,28 @@ process HISAT2 {
 
   tag "$reads.baseName"
   
-  container "${params.container_HISAT2samtools}"
+  container "${params.container_hisat}"
   publishDir "$params.out_dir/hisat/", mode: 'move'
 
   input:
   path(reads)
 
   output:
-  path('*.sam')
+  path('*.bam')
+  path('*.txt')
+
 
   script:
   """
-  samtools
+  INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
+  hisat2 -x \$INDEX \
+         -U $reads \
+         -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.summary.txt
+  samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
+  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
   """
-
-
-  // """
-  // INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
-  
-  // hisat2 -x \$INDEX \
-  //        -U $reads \
-  //        > ${reads.name.replaceAll('.fastq.gz','')}.sam
-
-  // """
-// samtools view ${reads.name.replaceAll('.fastq.gz','')}.sam > ${reads.name.replaceAll('.fastq.gz','')}.bam
-// samtools flagstat ${reads.name.replaceAll('.fastq.gz','')}.sam > ${reads.name.replaceAll('.fastq.gz','')}.flagstat.txt
-
-
-process samtools {
-
-  tag "$reads.baseName"
-
-  con
-
 }
 
-
-}
 
 workflow {
 

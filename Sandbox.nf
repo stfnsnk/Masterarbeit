@@ -15,7 +15,7 @@ process hisat_version {
 
 process first_line {
 
-    tag "${reads.name.replaceAll('.fastq.gz','')}"
+    tag "${reads.name.replaceAll("['.fastq.gz'|'.fastq']","")}"
     publishDir "$params.out_dir/firstlines/", mode: 'move'
 
     input:
@@ -26,7 +26,7 @@ process first_line {
     
     script:
     """
-    zcat $reads | head -1 > firstline_${reads.name.replaceAll('.fastq.gz','')}.txt
+    zcat $reads | head -1 > firstline_${reads.name.replaceAll("['.fastq.gz'|'.fastq']","")}.txt
     """
 
 }
