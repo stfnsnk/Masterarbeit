@@ -17,24 +17,43 @@ process HISAT2 {
   tag "$reads.baseName"
   
   container "${params.container_hisat}"
-  publishDir "$params.out_dir/hisat/", mode: 'move'
+  publishDir "$params.out_dir/hisat/"
 
   input:
   path(reads)
 
   output:
-  path('*.bam')
-  path('*.txt')
+  path '*.sam', emit: hisat2_sam_out_ch
 
-
+// worked, can be optimised with sort?! samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
+// the -p 8 flag didnt help
   script:
   """
   INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
   hisat2 -x \$INDEX \
-         -U $reads \
-         -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.summary.txt
-  samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
-  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
+        -U $reads \
+        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.summary.txt
+  """
+}
+
+process sam_to_sorted_bam {
+  tag"$sam_files.baseName"
+
+  container "${params.container_samtools}"
+  publishDir "$params.out_dir/bam_files/", mode: 'move'
+
+  input:
+  path(sam_files)
+
+  output:
+  path('*.bam')
+  path('*.bai')
+
+  script:
+  """
+  samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
+  samtools sort -o ${sam_files.baseName}_sorted.bam ${sam_files}
+  samtools index ${sam_files.baseName}_sorted.bam  
   """
 }
 
@@ -47,6 +66,6 @@ workflow {
     .set{reads_ch}
 
   HISAT2(reads_ch)
-
+  sam_to_sorted_bam(HISAT2.out)
 }
 

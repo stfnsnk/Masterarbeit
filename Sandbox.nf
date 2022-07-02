@@ -31,6 +31,27 @@ process first_line {
 
 }
 
+process sam_to_sorted_bam {
+  tag"$sam_files.baseName"
+
+  container "${params.container_samtools}"
+  publishDir "$params.out_dir/bam_files/", mode: 'move'
+
+  input:
+  path(sam_files)
+
+  output:
+  path('*.bam')
+  path('*.bai')
+
+  script:
+  """
+  samtools sort -o ${sam_files.baseName}.bam ${sam_files}
+  samtools index ${sam_files.baseName}.bam  
+  samtools flagstat ${sam_files.baseName}.bam > ${sam_files.baseName}.flagstat.txt
+  """
+}
+
 
 
 workflow {
@@ -42,7 +63,13 @@ workflow {
         .view()
         .set{ reads_ch }
 
-    first_line(reads_ch)
+    Channel
+        .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
+        .view()
+        .set{ sam_files_ch }
+
+    sam_to_sorted_bam(sam_files_ch)
+    //first_line(reads_ch)
     //hisat_version()
     
 }
