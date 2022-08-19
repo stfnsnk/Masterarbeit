@@ -52,24 +52,51 @@ process sam_to_sorted_bam {
   """
 }
 
+process featureCounts {
+    tag "$bam_files.baseName"
 
+    container "$params.container_subread"
+    publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "move"
+
+    input:
+    path(bam_files)
+
+    output:
+    path('*.txt')
+    path('*.summary')
+
+    script:
+    """
+    featureCounts -a ${params.features_to_count} -t exon -g gene_id \
+    -o ${bam_files.baseName}.counts.txt ${bam_files} 
+    """
+}
 
 workflow {
 
-    println ("Hy starting my first workflow with " + params.container_hisat)
-    println ("with the reads from " + params.reads_folder)
-    Channel
-        .fromPath("${params.reads_folder}/*.{fastq,fastq.gz}", type: 'file', checkIfExists: true)
-        .view()
-        .set{ reads_ch }
+    // println ("Hy starting my first workflow with " + params.container_hisat)
+    // println ("with the reads from " + params.reads_folder)
+    // Channel
+    //     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz}", type: 'file', checkIfExists: true)
+    //     .view()
+    //     .set{ reads_ch }
 
-    Channel
-        .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
-        .view()
-        .set{ sam_files_ch }
+    // Channel
+    //     .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
+    //     .view()
+    //     .set{ sam_files_ch }
 
-    sam_to_sorted_bam(sam_files_ch)
+    // sam_to_sorted_bam(sam_files_ch)
     //first_line(reads_ch)
     //hisat_version()
     
+
+    println("Hy starting my first feature count worklfow with " + params.bam_files_to_count)
+
+    Channel 
+        .fromPath("${params.bam_files_to_count}/*.bam", type: 'file', checkIfExists: true)
+        .view()
+        .set{bam_file_ch}
+
+    featureCounts(bam_file_ch)
 }
