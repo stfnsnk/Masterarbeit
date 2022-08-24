@@ -59,6 +59,34 @@ process sam_to_sorted_bam {
   """
 }
 
+process HISAT2_to_bam {
+
+  tag "$reads.baseName"
+  
+  container "${params.container_HISAT2samtools}"
+  publishDir "$params.out_dir/Nextflow_output/hisat/"
+
+  input:
+  path(reads)
+
+  output:
+  path '*.bam' , emit: HISAT2_bam_out_ch
+  path '*.txt'
+
+// worked, can be optimised with sort?! samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
+// the -p 8 flag didnt help
+  script:
+  """
+  INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
+  hisat2 --rna-strandness R \
+        -x \$INDEX \
+        -U $reads \
+        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.hisat_summary.txt
+  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
+  samtools sort -o ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}_sorted.bam ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam
+  """
+}
+
 process featureCounts {
   tag "$bam_files.baseName"
 
@@ -87,8 +115,9 @@ workflow {
     //.view()
     .set{reads_ch}
 
-  HISAT2(reads_ch)
-  sam_to_sorted_bam(HISAT2.out.HISAT2_sam_out_ch)
-  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles_ch)
+  //HISAT2(reads_ch)
+  //sam_to_sorted_bam(HISAT2.out.HISAT2_sam_out_ch)
+  HISAT2_to_bam(reads_ch)
+  featureCounts(HISAT2_to_bam.out.HISAT2_bam_out_ch)
 }
 
