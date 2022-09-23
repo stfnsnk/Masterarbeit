@@ -8,6 +8,7 @@ nextflow.enable.dsl=2
 log.info """\
          reads: ${params.reads_folder}
          hisat2_index: ${params.hisat2_index}
+         features (GTF): ${params.features_to_count}
          """
          .stripIndent()
 
@@ -32,9 +33,9 @@ process HISAT2 {
   """
   INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
   hisat2 --rna-strandness R \
-        -x \$INDEX \
-        -U $reads \
-        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.summary.txt
+          -x \$INDEX \
+          -U $reads \
+          -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.summary.txt
   """
 }
 
@@ -102,8 +103,10 @@ process featureCounts {
 
   script:
   """
-  featureCounts -a ${params.features_to_count} -t exon -g gene_id \
-  -o ${bam_files.baseName}.counts.txt ${bam_files} 
+  featureCounts -a ${params.features_to_count} \
+                -t exon \
+                -g gene_id \
+                -o ${bam_files.baseName}.counts.txt ${bam_files} 
   """
 }
 
@@ -115,9 +118,9 @@ workflow {
     //.view()
     .set{reads_ch}
 
-  //HISAT2(reads_ch)
-  //sam_to_sorted_bam(HISAT2.out.HISAT2_sam_out_ch)
-  HISAT2_to_bam(reads_ch)
-  featureCounts(HISAT2_to_bam.out.HISAT2_bam_out_ch)
+  HISAT2(reads_ch)
+  sam_to_sorted_bam(HISAT2.out.HISAT2_sam_out_ch)
+  //HISAT2_to_bam(reads_ch)
+  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles_ch)
 }
 
