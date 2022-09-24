@@ -26,8 +26,6 @@ process HISAT2 {
   path '*.sam' , emit: HISAT2_sam_out_ch
   path '*.txt'
 
-// worked, can be optimised with sort?! samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
-// the -p 8 flag didnt help
   script:
   """
   INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
@@ -73,8 +71,6 @@ process HISAT2_to_bam {
   path '*.bam' , emit: HISAT2_bam_out_ch
   path '*.txt'
 
-// worked, can be optimised with sort?! samtools view -bS ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.bam
-// the -p 8 flag didnt help
   script:
   """
   INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
