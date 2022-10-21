@@ -3,38 +3,45 @@
 nextflow.enable.dsl=2
 
 
-process Trim_galore {
-  tag "$input_files.baseName"
+process trim_galore {
+  tag "$sample_id"
 
   container "$params.container_TrimGalore"
-  publishDir "$params.out_dir/QC/"
+  publishDir "$params.out_dir/trim_galore/"
 
   input:
-  path(input_files)
+  tuple val(sample_id), path(input_files)
 
   output:
   path("*.html")
- //-a AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC
+ 
   script:
   """
-  trim_galore  \
+  trim_galore --paired \
               --fastqc \
               $input_files
   """
   }
 
+process fastqc {
+  tag "$sample_id"
 
+  container "$params.container_TrimGalore"
+  publishDir "$params.out_dir/FASTQC/"
 
-process hisat_version {
-    
-  container "${params.container_hisat}"
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*.html"), mode: move
+  path("*.{fastq.gz,fastq,fq.gz,fq}"), mode: move
 
   script:
   """
-  hisat2 --version
+  fastqc $input_files
   """
+  }
 
-}
 
 process first_line {
 
@@ -73,7 +80,7 @@ process sam_to_sorted_bam {
   samtools index ${sam_files.baseName}.bam  
   samtools flagstat ${sam_files.baseName}.bam > ${sam_files.baseName}.flagstat.txt
   """
-}
+  }
 
 process featureCounts {
   tag "$bam_files.baseName"
@@ -94,7 +101,7 @@ process featureCounts {
   featureCounts -a ${features} -t exon -g gene_id \
   -o ${bam_files.baseName}.counts.txt ${bam_files} 
   """
-}
+  }
 
 process minimap2 {
   tag "$input_files.baseName"
@@ -118,7 +125,7 @@ process minimap2 {
 
 process download_mouse_reference {
 
-//TODO: hisat2 Index wird als komische datei runtergeladen, gunzip funktioniert nicht, muss manuell mit WinRAR?! entpackt werden
+  //TODO: hisat2 Index wird als komische datei runtergeladen, gunzip funktioniert nicht, muss manuell mit WinRAR?! entpackt werden
 
   script:
   """
@@ -127,7 +134,7 @@ process download_mouse_reference {
   wget -nc -P reference_genome_GRCm38/Gene_annotation ${params.GRCm38_gtf_url}
   wget -nc -P reference_genome_GRCm38/Minimap2_reference ${params.minimap2_GRCm38_ref_url} 
   """
-}
+  }
 
 process setup {
 
@@ -141,15 +148,78 @@ process setup {
     """
 }
 
+process fastp {
+  tag "$sample_id"
+
+  container "quay.io/biocontainers/fastp:0.23.2--h5f740d0_3" 
+  publishDir "$params.out_dir/Nextflow_output/fastp/" , mode: "move"
+
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*")
+
+
+  script:
+  """
+  fastp -i ${input_files[0]} \
+        -o "${sample_id}_R1_fastp.fastq.gz" \
+        -I ${input_files[1]} \
+        -O "${sample_id}_R2_fastp.fastq.gz" \
+        -g \
+        -x \
+        --html "$sample_id".html \
+        --detect_adapter_for_pe
+  """
+}
+
+
+process merge_fastq {
+  tag "$sample_id"
+
+  publishDir "$params.out_dir/fastq_merged" , mode: "move"
+
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*")
+
+  script:
+  """
+  cd $launchDir
+  
+  for read_nr in [1,2]; \
+    do \
+    for i in 'ls *_S?*_R${read_nr}*.fastq.gz'; \
+      do  \
+        head $i \
+      done \
+    done
+  """
+
+}
+
 workflow {
 
+  Channel
+/*     .fromFilePairs("${params.reads_folder}/*_L00?_R{1,2}*.fastq*", checkIfExists: true)
+    .view()
+    .set{ read_pair_ch }
+ */
+  //fastp(read_pair_ch)
+    Channel
+      .from(1..4)
+      .set{ Lane_nr }
 
-/*       Channel
-        .fromPath("${params.reads_folder}/*.{fastq,fastq.gz}", type: 'file', checkIfExists: true)
+      Channel
+        .fromPath("${params.reads_folder}/*S[1,2,3,4]_L00?_R1*.fastq*", type: 'file', checkIfExists: true)
         .view()
         .set{ reads_ch }
- */
-//Trim_galore(reads_ch)
+
+
+ //Trim_galore(reads_ch)
 
  /*     Channel
         .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
@@ -166,5 +236,4 @@ workflow {
     featureCounts(bam_file_ch, params.features_to_count)
  
  */
-  download_mouse_reference()
  }
