@@ -13,6 +13,36 @@ log.info """\
          .stripIndent()
 
 
+process fastp {
+  tag "$sample_id"
+
+  container "quay.io/biocontainers/fastp:0.23.2--h5f740d0_3" 
+  publishDir "$params.out_dir/Nextflow_output/fastp/" , mode: "copy"
+
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*.html")
+  path("*trimmed.fastq.gz") , emit: trimmed_fastq
+
+
+  script:
+  """
+  fastp -i ${input_files[0]} \
+        -o "${sample_id}_R1_trimmed.fastq.gz" \
+        -I ${input_files[1]} \
+        -O "${sample_id}_R2_trimmed.fastq.gz" \
+        -g \
+        -x \
+        --html "$sample_id".html \
+        --detect_adapter_for_pe \
+        --overrepresentation_analysis
+  """
+}
+
+
+
 process HISAT2_singleend {
 
   tag "$reads.baseName"
@@ -37,7 +67,7 @@ process HISAT2_singleend {
   """
 }
 
-process HISAT2 {
+process HISAT2_paired {
 
   tag "$sample_id"
   
@@ -118,7 +148,7 @@ process featureCounts {
 
   input:
   path(bam_files)
-  path(features)
+  path(features) //refering to the params.features path does not work?
 
   output:
   path('*.txt')
@@ -156,17 +186,14 @@ process minimap2 {
 
 workflow {
 
-  Channel 
+/*   Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
     //.view()
     .set{reads_ch}
+ */
 
   Channel
-    .from('fastq', 'fastq.gz', 'fq', 'fq.gz')
-    .set{ FASTQ_file_endings }
-
-  Channel
-  .fromFilePairs("${params.reads_folder}/*_{R1,R2}*fastq.gz", checkIfExists: true)
+  .fromFilePairs("${params.reads_folder}/*Ko1_{R1,R2}*fastq.gz", checkIfExists: true)
   .view()
   .set{ read_pair_ch }
 
@@ -175,16 +202,15 @@ workflow {
   .view()
   .set{ trimmed_read_pair_ch }
  */
+  fastp(read_pair_ch)
 
-
-  HISAT2(read_pair_ch)
-
-  //sam_to_sorted_bam(HISAT2.out.HISAT2_sam_out_ch)
+  HISAT2_paired(fastp.out.trimmed_fastq)
+  sam_to_sorted_bam(HISAT2_paired.out.HISAT2_sam_out_ch)
 
   //minimap2(reads_ch)
   //sam_to_sorted_bam(minimap2.out.minimap2_sam)
   
   //HISAT2_to_bam(reads_ch)
-  //featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, params.features_to_count)
+  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, params.features_to_count)
 }
 

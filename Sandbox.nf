@@ -125,13 +125,13 @@ process minimap2 {
 
 process download_mouse_reference {
 
-  //TODO: hisat2 Index wird als komische datei runtergeladen, gunzip funktioniert nicht, muss manuell mit WinRAR?! entpackt werden
-
+  //TODO: TEST HISAT Index Download and tar
   script:
   """
   cd $projectDir
-  wget -nc -O grcm38_snp_tran.gz -P reference_genome_GRCm38/Hisat_Index ${params.hisat2_index_url}
-  wget -nc -P reference_genome_GRCm38/Gene_annotation ${params.GRCm38_gtf_url}
+  mkdir -p reference_genome_GRCm38/Hisat_index
+  [ -d $projectDir/reference_genome_GRCm38/Hisat_index/grcm38_snp_tran ] && wget -P reference_genome_GRCm38/Hisat_index -O download.tar.gz ${params.hisat2_index_url} && tar -xzf download.tar.gz 
+  wget -nc -P reference_genome_GRCm38/Gene_annotation ${params.GRCm38_gtf_url} 
   wget -nc -P reference_genome_GRCm38/Minimap2_reference ${params.minimap2_GRCm38_ref_url} 
   """
   }
@@ -158,15 +158,16 @@ process fastp {
   tuple val(sample_id), path(input_files)
 
   output:
-  path("*")
+  path("*.html")
+  path("*trimmed_fastq.gz") , emit: trimmed_fastq
 
 
   script:
   """
   fastp -i ${input_files[0]} \
-        -o "${sample_id}_R1_fastp.fastq.gz" \
+        -o "${sample_id}_R1_trimmed.fastq.gz" \
         -I ${input_files[1]} \
-        -O "${sample_id}_R2_fastp.fastq.gz" \
+        -O "${sample_id}_R2_trimmed.fastq.gz" \
         -g \
         -x \
         --html "$sample_id".html \
@@ -209,17 +210,15 @@ workflow {
     .set{ read_pair_ch }
  */
   //fastp(read_pair_ch)
-    Channel
-      .from(1..4)
-      .set{ Lane_nr }
 
-      Channel
-        .fromPath("${params.reads_folder}/*S[1,2,3,4]_L00?_R1*.fastq*", type: 'file', checkIfExists: true)
-        .view()
-        .set{ reads_ch }
+  Channel
+  .fromFilePairs("${params.reads_folder}/*Ko1_{R1,R2}*fastq.gz", checkIfExists: true)
+  .view()
+  .set{ read_pair_ch }
 
 
- //Trim_galore(reads_ch)
+ download_mouse_reference()
+ //Tr im_galore(reads_ch)
 
  /*     Channel
         .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
