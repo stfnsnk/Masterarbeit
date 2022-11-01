@@ -24,7 +24,7 @@ process fastp {
 
   output:
   path("*.html")
-  path("*trimmed.fastq.gz") , emit: trimmed_fastq
+  tuple val("$sample_id"), path("*{R1,R2}_trimmed.fastq.gz") , emit: trimmed_fastq_pair
 
 
   script:
@@ -33,8 +33,8 @@ process fastp {
         -o "${sample_id}_R1_trimmed.fastq.gz" \
         -I ${input_files[1]} \
         -O "${sample_id}_R2_trimmed.fastq.gz" \
-        -g \
-        -x \
+        --trim_poly_g \
+        --trim_poly_x \
         --html "$sample_id".html \
         --detect_adapter_for_pe \
         --overrepresentation_analysis
@@ -76,6 +76,7 @@ process HISAT2_paired {
 
   input:
   tuple val(sample_id), path(input_files)
+  path( index_files )
 
   output:
   path '*.sam' , emit: HISAT2_sam_out_ch
@@ -87,7 +88,7 @@ process HISAT2_paired {
   hisat2 --rna-strandness RF \
           -x \$INDEX \
           -1 ${input_files[0]} \
-          -2 ${input_files[1]}\
+          -2 ${input_files[1]} \
           -S ${sample_id}.sam &> ${sample_id}.hisat_summary.txt
   """
 }
@@ -148,7 +149,7 @@ process featureCounts {
 
   input:
   path(bam_files)
-  path(features) //refering to the params.features path does not work?
+  path(features) 
 
   output:
   path('*.txt')
@@ -193,24 +194,30 @@ workflow {
  */
 
   Channel
-  .fromFilePairs("${params.reads_folder}/*Ko1_{R1,R2}*fastq.gz", checkIfExists: true)
-  .view()
-  .set{ read_pair_ch }
+    .fromPath(params.hisat2_index)
+    .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
+    .set { hisat2_index_ch }
 
-  /* Channel
-  .fromFilePairs("${params.reads_folder}/*_{R1,R2}*val*fq.gz", checkIfExists: true)
-  .view()
-  .set{ trimmed_read_pair_ch }
- */
-  fastp(read_pair_ch)
 
-  HISAT2_paired(fastp.out.trimmed_fastq)
+  Channel
+    .fromFilePairs("${params.reads_folder}/*_{R1,R2}*fastq.gz", checkIfExists: true)
+    .view()
+    .set{ read_pair_ch }
+
+ 
+  //fastp(read_pair_ch)
+
+  //HISAT2_paired(hisat2_index_ch, fastp.out.trimmed_fastq_pair)
+  
+  HISAT2_paired(read_pair_ch, hisat2_index_ch)
+
   sam_to_sorted_bam(HISAT2_paired.out.HISAT2_sam_out_ch)
 
   //minimap2(reads_ch)
   //sam_to_sorted_bam(minimap2.out.minimap2_sam)
   
   //HISAT2_to_bam(reads_ch)
+  
   featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, params.features_to_count)
 }
 

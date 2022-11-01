@@ -130,7 +130,7 @@ process download_mouse_reference {
   """
   cd $projectDir
   mkdir -p reference_genome_GRCm38/Hisat_index
-  [ -d $projectDir/reference_genome_GRCm38/Hisat_index/grcm38_snp_tran ] && wget -P reference_genome_GRCm38/Hisat_index -O download.tar.gz ${params.hisat2_index_url} && tar -xzf download.tar.gz 
+  [ -d $projectDir/reference_genome_GRCm38/Hisat_index/grcm38_snp_tran ] && wget -P reference_genome_GRCm38/Hisat_Index -O download.tar.gz ${params.hisat2_index_url} && tar -xzf download.tar.gz 
   wget -nc -P reference_genome_GRCm38/Gene_annotation ${params.GRCm38_gtf_url} 
   wget -nc -P reference_genome_GRCm38/Minimap2_reference ${params.minimap2_GRCm38_ref_url} 
   """
