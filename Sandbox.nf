@@ -202,23 +202,81 @@ process merge_fastq {
 
 }
 
+
+
+process multiqc {
+
+  container "${params.container_multiqc}"
+  publishDir "${params.out_dir}/Nextflow_output/multiqc/", mode: "move"
+  
+  input:
+  path(input_path)
+
+  output:
+  path("*")
+
+  script:
+  """
+  cd ${input_path}
+  multiqc .
+  """
+}
+
+process guppy_barcode_trimming { //läuft ewig, funzt nicht?
+  tag "$sample_id"
+
+  container "${params.container_guppy_cpu}" 
+  publishDir "${params.out_dir}/Nextflow_output/guppy/" , mode: "copy"
+
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*")
+
+  //--config dna_r9.4.1_450bps_sup_prom.cfg \
+  script:
+  """
+ guppy_barcoder --input_path ${params.reads_folder} \
+  --save_path \$PWD \
+  --barcode_kits "EXP-NBD104 EXP-NBD114"
+  """
+}
+
+
+workflow ont_pipeline {
+
+//ONT Pipeline
+
+   Channel 
+    .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
+    .map { file -> tuple(file.simpleName, file)}
+    .view()
+    .set{reads_ch}
+
+
+
+  guppy_barcode_trimming(reads_ch)
+
+}
 workflow {
 
-  Channel
-/*     .fromFilePairs("${params.reads_folder}/*_L00?_R{1,2}*.fastq*", checkIfExists: true)
+/*  Channel
+     .fromFilePairs("${params.reads_folder}/*_L00?_R{1,2}*.fastq*", checkIfExists: true)
     .view()
     .set{ read_pair_ch }
  */
   //fastp(read_pair_ch)
 
-  Channel
+/*   Channel
   .fromFilePairs("${params.reads_folder}/*Ko1_{R1,R2}*fastq.gz", checkIfExists: true)
   .view()
   .set{ read_pair_ch }
+ */
 
-
- download_mouse_reference()
- //Tr im_galore(reads_ch)
+ //download_mouse_reference()
+ 
+ //multiqc("${params.out_dir}/Nextflow_output/")
 
  /*     Channel
         .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
@@ -235,4 +293,7 @@ workflow {
     featureCounts(bam_file_ch, params.features_to_count)
  
  */
+
+
+
  }
