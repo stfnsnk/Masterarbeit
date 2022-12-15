@@ -202,7 +202,35 @@ process merge_fastq {
 
 }
 
+process pycoQC {
 
+  container "${params.container_pycoQC}"
+  publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
+  
+  input:
+  path(input_seq_sum)
+  path(input_barcode_sum)
+  path(input_bam)
+
+  output:
+  path("*")
+
+  script:
+  """
+  if [ -e $input_bam ]; then 
+    pycoQC  -f ${input_seq_sum} \
+            -b ${input_barcode_sum} \
+            -a ${input_bam}/*.bam \
+            -o pycoQC_output.html \
+            -j pycoQC_output.json
+  else
+    pycoQC  -f ${input_seq_sum} \
+          -b ${input_barcode_sum} \
+          -o pycoQC_output.html \
+          -j pycoQC_output.json
+  fi  
+  """
+}
 
 process multiqc {
 
@@ -259,6 +287,29 @@ workflow ont_pipeline {
   guppy_barcode_trimming(reads_ch)
 
 }
+
+workflow featureCount_merge {
+  Channel
+    .fromPath("${params.input_path}")
+    .collect()
+
+}
+workflow pycoQC_workflow {
+  Channel
+    .fromPath("${params.pyco_seq_summary}")
+    .set{ pyco_input_seq_sum }
+
+  Channel
+    .fromPath("${params.pyco_barcode_summary}")
+    .set{ pyco_input_barcode_sum }
+  
+  Channel
+    .fromPath("${params.pyco_bam_file}")
+    .set{ pyco_input_bam }
+  
+  pycoQC(pyco_input_seq_sum, pyco_input_barcode_sum, pyco_input_bam)
+}
+
 workflow {
 
 /*  Channel
