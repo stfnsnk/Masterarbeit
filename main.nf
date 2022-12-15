@@ -9,6 +9,7 @@ log.info """\
          reads: ${params.reads_folder}
          hisat2_index: ${params.hisat2_index_folder}
          features (GTF): ${params.features_to_count_folder}
+         minimap reference genome: ${params.minimap2_index_folder}
          """
          .stripIndent()
 
@@ -191,6 +192,10 @@ process sam_to_sorted_filtered_bam {
         read reverse strand (0x10)
         not primary alignment (0x100)
         supplementary alignment (0x800)
+        2308 = reverse strand dabei
+
+          samtools sort -o ${sam_files.baseName}_sorted.bam ${sam_files}
+  samtools index ${sam_files.baseName}_sorted.bam
   */
   tag"$sam_files.baseName"
 
@@ -198,23 +203,22 @@ process sam_to_sorted_filtered_bam {
   publishDir "$params.out_dir/Nextflow_output/bam_files/", mode: 'copy'
 
   input:
-  path(sam_files)
+  path( sam_files )
   path( ref_genome_fasta )
 
   output:
-  path('*.bam') , emit: sorted_bamfiles
+  path('*sorted_filt.bam') , emit: out_bamfiles
   path('*.bai')
   path('*.txt')
 
   script:
   """
   samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
-  samtools view ${sam_files} -bh \
-                                      -T ${ref_genome_fasta} \
-                                      -F 2324 > ${sam_files.baseName}.filt.bam
-  samtools sort -o ${sam_files.baseName}_filt_sorted.bam ${sam_files.baseName}.filt.bam
-  samtools index ${sam_files.baseName}_filt_sorted.bam 
-  samtools flagstat ${sam_files.baseName}_filt_sorted.bam > ${sam_files.baseName}_filt_sorted.flagstat.txt  
+  samtools view ${sam_files}  -bh \
+                              -t ${ref_genome_fasta} \
+                              -F 2308 | samtools sort -o ${sam_files.baseName}_sorted_filt.bam
+  samtools index ${sam_files.baseName}_sorted_filt.bam 
+  samtools flagstat ${sam_files.baseName}_sorted_filt.bam > ${sam_files.baseName}_sorted_filt.flagstat.txt  
   """
 }
 
@@ -319,6 +323,7 @@ process minimap2 {
       2) long insertions are disabled; 
       3) deletion and insertion gap costs are different during chaining; 
       4) the computation of the ‘ms’ tag ignores introns to demote hits to pseudogenes. */
+  // -k14 (lt. ONT Protokoll)
   //-Q	Ignore base quality in the input file 
   // -u finding canonical splice site f=transcript strand (lt. Paper "The long and the short of it; Dong X, Tian L et. al.")
   // --secondary=no TEST ob secondary alignment die featureCount anzahl verfälscht?
@@ -338,8 +343,8 @@ process minimap2 {
   """
   minimap2 -a \
            -x splice \
+           -k14 \
            -uf \
-           -p 1.0 \
            --secondary=no \
            ${minimap2_index} \
            $input_files > ${sample_id}.sam   
@@ -371,7 +376,7 @@ workflow ont_pipeline {
   
   Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
-    .map { file -> tuple(file.simpleName, file)}
+    .map { file -> tuple(file.simpleName, file) }
     .view()
     .set{reads_ch}
 
@@ -379,7 +384,7 @@ workflow ont_pipeline {
     .fromPath( "${params.minimap2_index_folder}/*.fa*" )
     .collect()
     .view()
-    .set { minimap_index_ch } 
+    .set { minimap_ref_ch } 
 
   Channel
     .fromPath( "${params.features_to_count_folder}/*.gtf*" )
@@ -387,9 +392,10 @@ workflow ont_pipeline {
     .set{ gene_annotation_file_ch }
 
 
-  minimap2(reads_ch, minimap_index_ch)
-  sam_to_sorted_bam(minimap2.out.minimap2_sam)
-  featureCounts_long(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
+  minimap2(reads_ch, minimap_ref_ch)
+  sam_to_sorted_filtered_bam(minimap2.out.minimap2_sam, minimap_ref_ch)
+
+  featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
 
   //multiqc(featureCounts_long.out.featureCounts_summary_files)
 }
@@ -441,13 +447,13 @@ workflow short_read_pipeline_single {
     .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
     .set { hisat2_index_ch }
 
-fastp_singleend(reads_ch)
+  fastp_singleend(reads_ch)
 
-hisat2_singleend(fastp.out.trimmed_fastq, hisat_index_ch)
-sam_to_sorted_bam(hisat2_singleend.out.sam_out_ch)
+  hisat2_singleend(fastp.out.trimmed_fastq, hisat_index_ch)
+  sam_to_sorted_bam(hisat2_singleend.out.sam_out_ch)
 
-featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
+  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
 
-//multiqc(featureCounts_paired.out.featureCounts_summary_files)
+  //multiqc(featureCounts_paired.out.featureCounts_summary_files)
 
 }
