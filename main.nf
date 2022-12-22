@@ -325,7 +325,7 @@ process minimap2 {
       4) the computation of the ‘ms’ tag ignores introns to demote hits to pseudogenes. */
   // -k14 (lt. ONT Protokoll)
   //-Q	Ignore base quality in the input file 
-  // -u finding canonical splice site f=transcript strand (lt. Paper "The long and the short of it; Dong X, Tian L et. al.")
+  // -u finding canonical splice site b=both, f=transcript strand (lt. Paper "The long and the short of it; Dong X, Tian L et. al.")
   // --secondary=no TEST ob secondary alignment die featureCount anzahl verfälscht?
   // -p 1.0 (sollte bei --secondary=no eigentlich nicht nötig sein?!)
   tag "$sample_id"
@@ -344,7 +344,7 @@ process minimap2 {
   minimap2 -a \
            -x splice \
            -k14 \
-           -uf \
+           -ub \
            --secondary=no \
            ${minimap2_index} \
            $input_files > ${sample_id}.sam   
@@ -371,6 +371,27 @@ process multiqc {
   """
 }
 
+workflow sam_and_count {
+  Channel
+    .fromPath("${params.input_path}/*.sam")
+    .view()
+    .set{ sam_input_ch }    
+
+  Channel
+    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .collect()
+    .view()
+    .set { minimap_ref_ch } 
+
+  Channel
+  .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+  .collect()
+  .set{ gene_annotation_file_ch }
+
+  sam_to_sorted_filtered_bam(sam_input_ch, minimap_ref_ch)
+
+  featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
+}
 
 workflow ont_pipeline {
   
