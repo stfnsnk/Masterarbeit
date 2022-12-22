@@ -272,7 +272,7 @@ process featureCounts_paired {
                 -p \
                 -t exon \
                 -g gene_id \
-                -o ${bam_files.baseName}.counts.tsv ${bam_files} 
+                -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
 
@@ -307,7 +307,7 @@ process featureCounts_long {
                 -t exon \
                 -g gene_id \
                 --primary \
-                -o ${bam_files.baseName}.counts.tsv ${bam_files} 
+                -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
 
