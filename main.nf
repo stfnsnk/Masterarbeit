@@ -6,6 +6,10 @@ nextflow.enable.dsl=2
 //params.hisat2_indexfiles ="$baseDir/ref_genome_grcm38/grcm38_snptran"
 
 log.info """\
+         =============================================
+         ============DGE Analysis Pipeline============
+         =============================================
+         Author: Stefan Senk - BIOINF22
          reads: ${params.reads_folder}
          hisat2_index: ${params.hisat2_index_folder}
          features (GTF): ${params.features_to_count_folder}
@@ -71,43 +75,6 @@ process fastp_singleend {
   """
 }
 
-process fastp_long_singleend {
-  //following flags are set for ONT long reads
-  // -Q, --disable_quality_filtering (quality filtering is enabled by default. If this option is specified, quality filtering is disabled)  
-  // -L, --disable_length_filtering (length filtering is enabled by default. If this option is specified, length filtering is disabled)
-  // --adapter_fasta (specify a FASTA file to trim reads by all the sequences in this FASTA file (string ([=auto])
-  
-  tag "$sample_id"
-
-  container "${params.container_fastp}" 
-  publishDir "${params.out_dir}/Nextflow_output/fastp/" , mode: "copy"
-
-  input:
-  tuple val(sample_id), path(input_files)
-
-  output:
-  path("*.json")
-  path("*.html")
-  path("*_trimmed.fastq.gz") , emit: trimmed_fastq
-
-
-  script:
-  """
-  fastp -i ${input_files[0]} \
-        -o "${sample_id}_trimmed.fastq.gz" \
-        --adapter_fasta
-        --trim_poly_x \
-        --disable_quality_filtering \
-        --disable_length_filtering \
-        --html "${sample_id}.html" \
-        --json "${sample_id}.json" \
-        --report_title "fastp report: $sample_id" \
-        --overrepresentation_analysis
-  """
-}
-
-
-
 process hisat2_singleend {
 
   tag "$reads.baseName"
@@ -133,7 +100,6 @@ process hisat2_singleend {
           -S ${sample_id}.sam
   """
 }
-
 
 process hisat2_paired {
 
@@ -179,8 +145,8 @@ process sam_to_sorted_bam {
   script:
   """
   samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
-  samtools sort -o ${sam_files.baseName}_sorted.bam ${sam_files}
-  samtools index ${sam_files.baseName}_sorted.bam  
+  samtools sort -o ${sam_files.baseName}.sorted.bam ${sam_files}
+  samtools index ${sam_files.baseName}.sorted.bam  
   """
 }
 
@@ -207,7 +173,7 @@ process sam_to_sorted_filtered_bam {
   path( ref_genome_fasta )
 
   output:
-  path('*sorted_filt.bam') , emit: out_bamfiles
+  path('*.sorted.filt.bam') , emit: out_bamfiles
   path('*.bai')
   path('*.txt')
 
@@ -216,35 +182,32 @@ process sam_to_sorted_filtered_bam {
   samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
   samtools view ${sam_files}  -bh \
                               -t ${ref_genome_fasta} \
-                              -F 2308 | samtools sort -o ${sam_files.baseName}_sorted_filt.bam
-  samtools index ${sam_files.baseName}_sorted_filt.bam 
-  samtools flagstat ${sam_files.baseName}_sorted_filt.bam > ${sam_files.baseName}_sorted_filt.flagstat.txt  
+                              -F 2308 | samtools sort -o ${sam_files.baseName}.sorted.filt.bam
+  samtools index ${sam_files.baseName}.sorted.filt.bam 
+  samtools flagstat ${sam_files.baseName}.sorted.filt.bam > ${sam_files.baseName}.sorted.filt.flagstat.txt  
   """
 }
 
-process hisat2_to_bam {
+process featureCounts {
+  tag "$bam_files.baseName"
 
-  tag "$reads.baseName"
-  
-  container "${params.container_HISAT2samtools}"
-  publishDir "$params.out_dir/Nextflow_output/hisat/"
+  container "$params.container_subread"
+  publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "move"
 
   input:
-  path(reads)
+  path(bam_files)
+  path(features)
 
   output:
-  path '*.bam' , emit: hisat2_bam_out_ch
-  path '*.txt'
+  path('*.tsv')
+  path('*.summary'), emit: featureCounts_summary_files
 
   script:
   """
-  INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
-  hisat2 --rna-strandness R \
-        -x \$INDEX \
-        -U $reads \
-        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.hisat_summary.txt
-  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
-  samtools sort -o ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}_sorted.bam ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam
+  featureCounts -a ${features} \
+                -t exon \
+                -g gene_id \
+                -o ${bam_files.baseName}.counts.tsv ${bam_files} 
   """
 }
 
@@ -262,7 +225,7 @@ process featureCounts_paired {
   path(features)
 
   output:
-  path('*.tsv')
+  path('*.tsv'), emit: count_files_ch
   path('*.summary'), emit: featureCounts_summary_files
 
   script:
@@ -311,7 +274,6 @@ process featureCounts_long {
   """
 }
 
-
 process minimap2 {
   
   //-a output in SAM format
@@ -344,17 +306,47 @@ process minimap2 {
   minimap2 -a \
            -x splice \
            -k14 \
-           -ub \
+           -uf \
            --secondary=no \
            ${minimap2_index} \
            $input_files > ${sample_id}.sam   
   """
 }
 
-process multiqc {
+process pycoQC {//in Pipeline noch nicht getestet
+
+  container "${params.container_pycoQC}"
+  publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
+  
+  input:
+  path(input_seq_sum)       //guppy sequencing summary 
+  path(input_barcode_sum)   // guppy_barcoder summary
+  path(input_bam)           //bam files, optional if alignment metrics should additionally reported
+
+  output:
+  path("*")
+
+  script:
+  """
+  if [ -e $input_bam ]; then 
+    pycoQC  -f ${input_seq_sum} \
+            -b ${input_barcode_sum} \
+            -a ${input_bam}/*.bam \
+            -o pycoQC_output.html \
+            -j pycoQC_output.json
+  else
+    pycoQC  -f ${input_seq_sum} \
+          -b ${input_barcode_sum} \
+          -o pycoQC_output.html \
+          -j pycoQC_output.json
+  fi  
+  """
+}
+
+process multiqc {//in Pipeline noch nicht getestet
 
   container "$params.container_multiqc"
-  containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
+  //containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
   publishDir "${params.out_dir}/Nextflow_output/multiqc/", mode: "move"
   
   input:
@@ -362,16 +354,40 @@ process multiqc {
   
 
   output:
-  path("*")
+  path("*.html")
 
   script:
   """
-  cd /multiqc_workdir \
   multiqc .
   """
 }
 
-workflow sam_and_count {
+process deseq2 {
+  tag "differential gene expression analysis with DESEQ2"
+  container "$params.container_deseq2"
+  publishDir "${params.out_dir}/Nextflow_output/DESEQ2/", mode: "move"
+
+
+  input:
+  path( sample_info_file )
+  path( feature_count_files ) //directory where the count files are located, NOT THE FILES!
+  path( script )
+
+  output:
+  path("*")
+
+  script:
+  """
+  Rscript $script $sample_info_file $feature_count_files
+  
+  """
+}
+
+//--------------------------------------------------------------------------------------//
+//-----------------------------------WORKFLOW SECTION-----------------------------------//
+//--------------------------------------------------------------------------------------//
+
+workflow filter_sam_and_count {
   Channel
     .fromPath("${params.input_path}/*.sam")
     .view()
@@ -391,6 +407,12 @@ workflow sam_and_count {
   sam_to_sorted_filtered_bam(sam_input_ch, minimap_ref_ch)
 
   featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
+
+  multiqc(featureCounts_paired.out.featureCounts_summary_files) //============= TESTEN!===========
+
+  deseq2(sample_info_ch, featureCounts_paired.out.count_files_ch, $params.DESEQ2_script) //============= TESTEN!===========
+
+
 }
 
 workflow ont_pipeline {
@@ -418,7 +440,7 @@ workflow ont_pipeline {
 
   featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
 
-  //multiqc(featureCounts_long.out.featureCounts_summary_files)
+  multiqc(featureCounts_long.out.featureCounts_summary_files) //============= TESTEN!===========
 }
 
 workflow short_read_pipeline_paired {
@@ -426,14 +448,13 @@ workflow short_read_pipeline_paired {
   Channel
     .fromFilePairs( "${params.reads_folder}/*_{R1,R2}*f*q.gz")
     .ifEmpty { exit 1, "no fastq files found at given path" }
-    .view()
     .set{ read_pair_ch }
   
   Channel
     .fromPath( "${params.hisat2_index_folder}/*.ht2" )
     .collect() 
     .map{ tuple( it.first().simpleName, it)}
-    .view()
+    //.view()
     .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
     .set { hisat2_index_ch }  
 
@@ -441,7 +462,10 @@ workflow short_read_pipeline_paired {
     .fromPath( "${params.features_to_count_folder}/*.gtf*" )
     .collect()
     .set{ gene_annotation_file_ch }
-   
+
+  println "Pipeline starting with read files:\n"
+  read_pair_ch.view()
+
   fastp_paired(read_pair_ch)
 
   hisat2_paired(fastp_paired.out.trimmed_fastq_pair, hisat2_index_ch)
@@ -449,7 +473,11 @@ workflow short_read_pipeline_paired {
 
   featureCounts_paired(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
  
-  //multiqc(featureCounts_paired.out.featureCounts_summary_files)
+  multiqc(featureCounts_paired.out.featureCounts_summary_files) //============= TESTEN!===========
+
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch, "${params.DESEQ2_script}") //============= TESTEN!===========
+
+
 }
 
 workflow short_read_pipeline_single {
@@ -478,3 +506,28 @@ workflow short_read_pipeline_single {
   //multiqc(featureCounts_paired.out.featureCounts_summary_files)
 
 }
+
+workflow DGE_analysis {
+  Channel
+    .fromPath("${params.DESEQ2_script}")
+    .set{ r_script_ch }
+    
+
+   Channel
+    .fromPath("${params.out_dir}/Nextflow_output/featureCounts", type: "dir" )
+    .set{ counts_ch }
+ 
+
+  Channel
+    .fromPath("${params.input_path}")
+    .set{ counts_ch }
+
+
+  Channel
+    .fromPath("${params.sample_info}")
+    .set{ sample_info_ch }
+    
+
+  deseq2(sample_info_ch, counts_ch, r_script_ch)
+}
+
