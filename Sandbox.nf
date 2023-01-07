@@ -21,7 +21,44 @@ process trim_galore {
               --fastqc \
               $input_files
   """
-  }
+}
+
+
+process fastp_long_singleend {
+  //following flags are set for ONT long reads
+  // -Q, --disable_quality_filtering (quality filtering is enabled by default. If this option is specified, quality filtering is disabled)  
+  // -L, --disable_length_filtering (length filtering is enabled by default. If this option is specified, length filtering is disabled)
+  // --adapter_fasta (specify a FASTA file to trim reads by all the sequences in this FASTA file (string ([=auto])
+  
+  tag "$sample_id"
+
+  container "${params.container_fastp}" 
+  publishDir "${params.out_dir}/Nextflow_output/fastp/" , mode: "copy"
+
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*.json")
+  path("*.html")
+  path("*_trimmed.fastq.gz") , emit: trimmed_fastq
+
+
+  script:
+  """
+  fastp -i ${input_files[0]} \
+        -o "${sample_id}_trimmed.fastq.gz" \
+        --adapter_fasta
+        --trim_poly_x \
+        --disable_quality_filtering \
+        --disable_length_filtering \
+        --html "${sample_id}.html" \
+        --json "${sample_id}.json" \
+        --report_title "fastp report: $sample_id" \
+        --overrepresentation_analysis
+  """
+}
+
 
 process fastqc {
   tag "$sample_id"
@@ -40,7 +77,7 @@ process fastqc {
   """
   fastqc $input_files
   """
-  }
+}
 
 
 process first_line {
@@ -61,6 +98,33 @@ process first_line {
 
 }
 
+process hisat2_to_bam {
+
+  tag "$reads.baseName"
+  
+  container "${params.container_HISAT2samtools}"
+  publishDir "$params.out_dir/Nextflow_output/hisat/"
+
+  input:
+  path(reads)
+
+  output:
+  path '*.bam' , emit: hisat2_bam_out_ch
+  path '*.txt'
+
+  script:
+  """
+  INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
+  hisat2 --rna-strandness R \
+        -x \$INDEX \
+        -U $reads \
+        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.hisat_summary.txt
+  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
+  samtools sort -o ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}_sorted.bam ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam
+  """
+}
+
+
 process sam_to_sorted_bam {
   tag"$sam_files.baseName"
 
@@ -80,7 +144,7 @@ process sam_to_sorted_bam {
   samtools index ${sam_files.baseName}.bam  
   samtools flagstat ${sam_files.baseName}.bam > ${sam_files.baseName}.flagstat.txt
   """
-  }
+}
 
 process featureCounts {
   tag "$bam_files.baseName"
@@ -93,15 +157,17 @@ process featureCounts {
   path(features)
 
   output:
-  path('*.txt')
-  path('*.summary')
+  path('*.tsv')
+  path('*.summary'), emit: featureCounts_summary_files
 
   script:
   """
-  featureCounts -a ${features} -t exon -g gene_id \
-  -o ${bam_files.baseName}.counts.txt ${bam_files} 
+  featureCounts -a ${features} \
+                -t exon \
+                -g gene_id \
+                -o ${bam_files.baseName}.counts.tsv ${bam_files} 
   """
-  }
+}
 
 process minimap2 {
   tag "$input_files.baseName"
@@ -134,7 +200,8 @@ process download_mouse_reference {
   wget -nc -P reference_genome_GRCm38/Gene_annotation ${params.GRCm38_gtf_url} 
   wget -nc -P reference_genome_GRCm38/Minimap2_reference ${params.minimap2_GRCm38_ref_url} 
   """
-  }
+}
+
 
 process setup {
 
@@ -208,9 +275,9 @@ process pycoQC {
   publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
   
   input:
-  path(input_seq_sum)
-  path(input_barcode_sum)
-  path(input_bam)
+  path(input_seq_sum)       //guppy sequencing summary 
+  path(input_barcode_sum)   // guppy_barcoder summary
+  path(input_bam)           //bam files, optional if alignment metrics should additionally reported
 
   output:
   path("*")
@@ -250,7 +317,7 @@ process multiqc {
   """
 }
 
-process guppy_barcode_trimming { //läuft ewig, funzt nicht?
+process guppy_barcode_trimming { 
   tag "$sample_id"
 
   container "${params.container_guppy_cpu}" 
@@ -288,13 +355,24 @@ workflow ont_pipeline {
 
 }
 
+workflow test {
+  Channel
+    .fromPath("${params.input_path}/*")
+    .map { file -> tuple(file.simpleName, file)}
+    .view()
+    .set{reads_ch}
+
+
+}
+
 workflow featureCount_merge {
   Channel
     .fromPath("${params.input_path}")
     .collect()
 
 }
-workflow pycoQC_workflow {
+
+workflow ONT_QC {
   Channel
     .fromPath("${params.pyco_seq_summary}")
     .set{ pyco_input_seq_sum }
