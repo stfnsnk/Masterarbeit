@@ -7,20 +7,19 @@
 
 args <- commandArgs(TRUE)
 sample_info_file <- args[1]
-feature_count_files <- args[2]
+feature_count_files <- args[2:length(args)]
 
 #==========================================================================================#
 #==============================reading in count data=======================================#
 #==========================================================================================#
 
-Sample_info <- read.table(sample_info_file, header = TRUE); Sample_info
-Sample_info <- Sample_info[order(Sample_info$condition),]; Sample_info
-
-# find all count files in featureCounts output directory
-file_paths <- list.files(path = feature_count_files, pattern = "*.tsv$", full.names = TRUE); file_paths
+Sample_info <- read.table(sample_info_file, header = TRUE); 
+Sample_info <- Sample_info[order(Sample_info$condition),]; 
+paste("Sample Info File: ", sample_info_file)
+Sample_info
 
 # find the first file of the Sample info file
-first_file <- file.path(feature_count_files, paste(Sample_info$samplename[1],".counts.tsv",sep = "")); first_file
+first_file <- paste(Sample_info$samplename[1],".counts.tsv",sep = "")
 
 #prepare raw count table with first file
 raw_counts <- read.table(file = first_file , sep="\t", header=TRUE)
@@ -28,12 +27,13 @@ raw_counts <- raw_counts[,c(1,7)]
 colnames(raw_counts) <- c("geneID", Sample_info$samplename[1]); colnames(raw_counts)
 
 #append all files according to Sample_Info.txt
-for (i in 2:length(file_paths)){
-  tmp <- read.table(file.path(feature_count_files, paste(Sample_info$samplename[i],".counts.tsv",sep = "")), sep="\t", header=TRUE)
+for (i in 2:length(Sample_info$samplename)){
+  next_file = match(paste(Sample_info$samplename[i],".counts.tsv",sep = ""), feature_count_files);next_file
+  tmp <- read.table(file = feature_count_files[next_file], sep="\t", header=TRUE); 
   tmp <- tmp[,c(1, 7)]
   colnames(tmp) <- c("geneID", Sample_info$samplename[i])
   if (any(duplicated(tmp$GeneID))){
-    stop("Duplicated feature names in ", file_paths[i], ": ", 
+    stop("Duplicated feature names in ", Sample_info$samplename[i], ": ", 
          paste(unique(tmp$GeneID[duplicated(tmp$GeneId)]), collapse=", "))
   }
   raw_counts <- merge(raw_counts, tmp, by="geneID", all=TRUE)
