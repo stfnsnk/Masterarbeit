@@ -40,8 +40,8 @@ process fastp_paired {
         -I ${input_files[1]} \
         -O "${sample_id}_R2_trimmed.fastq.gz" \
         --trim_poly_x \
-        --html "${sample_id}.html" \
-        --json "${sample_id}.json" \
+        --html "${sample_id}.fastp.html" \
+        --json "${sample_id}.fastp.json" \
         --report_title "fastp report: $sample_id" \
         --detect_adapter_for_pe \
         --overrepresentation_analysis
@@ -68,8 +68,8 @@ process fastp_singleend {
   fastp -i ${input_files[0]} \
         -o "${sample_id}_trimmed.fastq.gz" \
         --trim_poly_x \
-        --html "${sample_id}.html" \
-        --json "${sample_id}.json" \
+        --html "${sample_id}.fastp.html" \
+        --json "${sample_id}.fastp.json" \
         --report_title "fastp report: $sample_id" \
         --overrepresentation_analysis
   """
@@ -218,7 +218,7 @@ process featureCounts_paired {
   tag "$bam_files.baseName"
 
   container "${params.container_subread}"
-  publishDir "${params.out_dir}/Nextflow_output/featureCounts/", mode: "move"
+  publishDir "${params.out_dir}/Nextflow_output/featureCounts/", mode: "copy"
 
   input:
   path(bam_files)
@@ -346,18 +346,16 @@ process pycoQC {//in Pipeline noch nicht getestet
 process multiqc {//in Pipeline noch nicht getestet
 
   container "$params.container_multiqc"
-  //containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
+  containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
   publishDir "${params.out_dir}/Nextflow_output/multiqc/", mode: "move"
   
   input:
-  path(input_files).collect()
+  path(input_files)
   
-
-  output:
-  path("*.html")
-
+ 
   script:
   """
+  cd /multiqc_workdir
   multiqc .
   """
 }
@@ -370,7 +368,7 @@ process deseq2 {
 
   input:
   path( sample_info_file )
-  path( feature_count_files ) //directory where the count files are located, NOT THE FILES!
+  path( feature_count_files )
   path( script )
 
   output:
@@ -379,7 +377,6 @@ process deseq2 {
   script:
   """
   Rscript $script $sample_info_file $feature_count_files
-  
   """
 }
 
@@ -387,33 +384,26 @@ process deseq2 {
 //-----------------------------------WORKFLOW SECTION-----------------------------------//
 //--------------------------------------------------------------------------------------//
 
-workflow filter_sam_and_count {
-  Channel
-    .fromPath("${params.input_path}/*.sam")
-    .view()
-    .set{ sam_input_ch }    
+workflow count_QC_DESEQ {
 
   Channel
-    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
     .collect()
-    .view()
-    .set { minimap_ref_ch } 
+    .set{ gene_annotation_file_ch }
 
   Channel
-  .fromPath( "${params.features_to_count_folder}/*.gtf*" )
-  .collect()
-  .set{ gene_annotation_file_ch }
+    .fromPath("${params.input_path}/*.bam")
+    .view()
+    .set{ bam_to_count_ch }
 
-  sam_to_sorted_filtered_bam(sam_input_ch, minimap_ref_ch)
+  featureCounts_paired(bam_to_count_ch, gene_annotation_file_ch)
+  
+  multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
 
-  featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
-
-  multiqc(featureCounts_paired.out.featureCounts_summary_files) //============= TESTEN!===========
-
-  deseq2(sample_info_ch, featureCounts_paired.out.count_files_ch, $params.DESEQ2_script) //============= TESTEN!===========
-
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
 
 }
+
 
 workflow ont_pipeline {
   
@@ -438,9 +428,14 @@ workflow ont_pipeline {
   minimap2(reads_ch, minimap_ref_ch)
   sam_to_sorted_filtered_bam(minimap2.out.minimap2_sam, minimap_ref_ch)
 
+  pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
+
   featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
 
-  multiqc(featureCounts_long.out.featureCounts_summary_files) //============= TESTEN!===========
+  multiqc(featureCounts_long.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_long.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
 }
 
 workflow short_read_pipeline_paired {
@@ -473,9 +468,9 @@ workflow short_read_pipeline_paired {
 
   featureCounts_paired(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
  
-  multiqc(featureCounts_paired.out.featureCounts_summary_files) //============= TESTEN!===========
+  multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
 
-  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch, "${params.DESEQ2_script}") //============= TESTEN!===========
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
 
 
 }
@@ -504,6 +499,37 @@ workflow short_read_pipeline_single {
   featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
 
   //multiqc(featureCounts_paired.out.featureCounts_summary_files)
+
+}
+
+
+
+workflow filter_sam_and_count {
+  Channel
+    .fromPath("${params.input_path}/*.sam")
+    .view()
+    .set{ sam_input_ch }    
+
+  Channel
+    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .collect()
+    .view()
+    .set { minimap_ref_ch } 
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  sam_to_sorted_filtered_bam(sam_input_ch, minimap_ref_ch)
+
+  pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
+
+  featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
+
+  multiqc(featureCounts_long.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_long.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
 
 }
 
