@@ -270,14 +270,14 @@ process merge_fastq {
 }
 
 process pycoQC {
-
+  cpus 6
   container "${params.container_pycoQC}"
   publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
   
   input:
   path(input_seq_sum)       //guppy sequencing summary 
   path(input_barcode_sum)   // guppy_barcoder summary
-  path(input_bam)           //bam files, optional if alignment metrics should additionally reported
+  path(input_bam)           //directory containing bam files, optional if alignment metrics should additionally reported
 
   output:
   path("*")
@@ -287,15 +287,37 @@ process pycoQC {
   if [ -e $input_bam ]; then 
     pycoQC  -f ${input_seq_sum} \
             -b ${input_barcode_sum} \
-            -a ${input_bam}/*.bam \
-            -o pycoQC_output.html \
-            -j pycoQC_output.json
+            -a ${input_bam}\
+            -o pycoqc_output.html \
+            -j pycoqc_output.json
   else
     pycoQC  -f ${input_seq_sum} \
           -b ${input_barcode_sum} \
-          -o pycoQC_output.html \
-          -j pycoQC_output.json
+          -o pycoqc_output.html \
+          -j pycoqc_output.json
   fi  
+  """
+}
+
+process pycoQC_aln {
+  cpus 6
+  container "${params.container_pycoQC}"
+  publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
+  
+  input:
+  path(input_seq_sum)       //guppy sequencing summary 
+  path(input_bam)           //directory containing bam files, optional if alignment metrics should additionally reported
+  path(input_bai)
+
+  output:
+  path("*")
+
+  script:
+  """
+ pycoQC -f ${input_seq_sum} \
+        -a ${input_bam}\
+        -o ${input_bam.simpleName}_pycoqc.html \
+        -j ${input_bam.simpleName}_pycoqc.json
   """
 }
 
@@ -341,7 +363,7 @@ process guppy_barcode_trimming {
 
 workflow ont_pipeline {
 
-//ONT Pipeline
+  //ONT Pipeline
 
    Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
@@ -375,17 +397,34 @@ workflow featureCount_merge {
 workflow ONT_QC {
   Channel
     .fromPath("${params.pyco_seq_summary}")
+    .collect()
     .set{ pyco_input_seq_sum }
 
   Channel
     .fromPath("${params.pyco_barcode_summary}")
+    .collect()
     .set{ pyco_input_barcode_sum }
   
+ 
+  pycoQC(pyco_input_seq_sum, pyco_input_barcode_sum)
+}
+
+workflow ONT_QC_aln {
   Channel
-    .fromPath("${params.pyco_bam_file}")
+    .fromPath("${params.pyco_seq_summary}")
+    .collect()
+    .set{ pyco_input_seq_sum }
+ 
+  Channel
+    .fromPath("${params.pyco_bam_files}/*.bam")
+    .view()
     .set{ pyco_input_bam }
   
-  pycoQC(pyco_input_seq_sum, pyco_input_barcode_sum, pyco_input_bam)
+  Channel
+    .fromPath("${params.pyco_bam_files}/*.bai")
+    .set{ pyco_input_bai }
+  
+  pycoQC_aln(pyco_input_seq_sum.collect(), pyco_input_bam, pyco_input_bai)
 }
 
 workflow {
