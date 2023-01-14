@@ -5,17 +5,6 @@ nextflow.enable.dsl=2
 //params.reads = "$baseDir/*.fastq.gz"
 //params.hisat2_indexfiles ="$baseDir/ref_genome_grcm38/grcm38_snptran"
 
-log.info """\
-         =============================================
-         ============DGE Analysis Pipeline============
-         =============================================
-         Author: Stefan Senk - BIOINF22
-         reads: ${params.reads_folder}
-         hisat2_index: ${params.hisat2_index_folder}
-         features (GTF): ${params.features_to_count_folder}
-         minimap reference genome: ${params.minimap2_index_folder}
-         """
-         .stripIndent()
 
 
 process fastp_paired {
@@ -214,6 +203,8 @@ process featureCounts {
 process featureCounts_paired {
   
   // -p for paired end input
+  //−−extraAttributes gene_name  ------------noch nicht getestet
+
 
   tag "$bam_files.baseName"
 
@@ -249,18 +240,18 @@ process featureCounts_long {
                           no matter they are from multimapping reads or not 
                           (ie. ‘-M’ is ignored). */
   // -O (AllowMultiOverlap) not recommended for RNA-Seq
-
+  //−−extraAttributes gene_name  ------------noch nicht getestet
   tag "$bam_files.baseName"
 
   container "$params.container_subread"
-  publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "move"
+  publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "copy"
 
   input:
   path(bam_files)
   path(features) 
 
   output:
-  path('*.tsv')
+  path('*.tsv'), emit: count_files_ch
   path('*.summary'), emit: featureCounts_summary_files
 
   script:
@@ -291,7 +282,7 @@ process minimap2 {
   // --secondary=no TEST ob secondary alignment die featureCount anzahl verfälscht?
   // -p 1.0 (sollte bei --secondary=no eigentlich nicht nötig sein?!)
   tag "$sample_id"
-  cpus 3 //for 6 core cpu with 64Gb RAM and queue = 2
+  cpus 2 //for 6 core cpu with 64Gb RAM and queue = 2
   container "$params.container_minimap2"
 
   input:
@@ -319,9 +310,9 @@ process pycoQC {//in Pipeline noch nicht getestet
   publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
   
   input:
-  path(input_seq_sum)       //guppy sequencing summary 
+  path(input_seq_sum)       // guppy sequencing summary 
   path(input_barcode_sum)   // guppy_barcoder summary
-  path(input_bam)           //bam files, optional if alignment metrics should additionally reported
+  path(input_bam)           // bam files, optional if alignment metrics should additionally reported
 
   output:
   path("*")
@@ -343,7 +334,7 @@ process pycoQC {//in Pipeline noch nicht getestet
   """
 }
 
-process multiqc {//in Pipeline noch nicht getestet
+process multiqc {
 
   container "$params.container_multiqc"
   containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
@@ -384,29 +375,23 @@ process deseq2 {
 //-----------------------------------WORKFLOW SECTION-----------------------------------//
 //--------------------------------------------------------------------------------------//
 
-workflow count_QC_DESEQ {
-
-  Channel
-    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
-    .collect()
-    .set{ gene_annotation_file_ch }
-
-  Channel
-    .fromPath("${params.input_path}/*.bam")
-    .view()
-    .set{ bam_to_count_ch }
-
-  featureCounts_paired(bam_to_count_ch, gene_annotation_file_ch)
-  
-  multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
-
-  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
-
-}
 
 
 workflow ont_pipeline {
-  
+  log.info """\
+        =============================================
+        ============DGE Analysis Pipeline============
+        ============== ONT LONG-READ ================
+        =============================================
+        Author: Stefan Senk - BIOINF22
+        reads: ${params.reads_folder}
+        reference genome: ${params.minimap2_index_folder}
+        features (GTF): ${params.features_to_count_folder}
+        sample info file: ${params.sample_info}
+        """
+        .stripIndent()
+
+  println("INPUT READ FILES:")
   Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
     .map { file -> tuple(file.simpleName, file) }
@@ -426,9 +411,10 @@ workflow ont_pipeline {
 
 
   minimap2(reads_ch, minimap_ref_ch)
+
   sam_to_sorted_filtered_bam(minimap2.out.minimap2_sam, minimap_ref_ch)
 
-  pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
+  //pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
 
   featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
 
@@ -439,17 +425,30 @@ workflow ont_pipeline {
 }
 
 workflow short_read_pipeline_paired {
+  log.info """\
+         =============================================
+         ============DGE Analysis Pipeline============
+         ============PAIRED END SHORT-READ============
+         =============================================
+         Author: Stefan Senk - BIOINF22
+         reads: ${params.reads_folder}
+         reference genome: ${params.hisat2_index_folder}
+         features (GTF): ${params.features_to_count_folder}
+         sample info file: ${params.sample_info}
+         """
+         .stripIndent()
 
+  println("INPUT READ FILES:")
   Channel
     .fromFilePairs( "${params.reads_folder}/*_{R1,R2}*f*q.gz")
     .ifEmpty { exit 1, "no fastq files found at given path" }
+    .view()
     .set{ read_pair_ch }
   
   Channel
     .fromPath( "${params.hisat2_index_folder}/*.ht2" )
     .collect() 
     .map{ tuple( it.first().simpleName, it)}
-    //.view()
     .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
     .set { hisat2_index_ch }  
 
@@ -458,8 +457,6 @@ workflow short_read_pipeline_paired {
     .collect()
     .set{ gene_annotation_file_ch }
 
-  println "Pipeline starting with read files:\n"
-  read_pair_ch.view()
 
   fastp_paired(read_pair_ch)
 
@@ -472,11 +469,23 @@ workflow short_read_pipeline_paired {
 
   deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
 
-
 }
 
 workflow short_read_pipeline_single {
+  log.info """\
+         =============================================
+         ============DGE Analysis Pipeline============
+         ============SINGLE END SHORT-READ============
+         =============================================
+         Author: Stefan Senk - BIOINF22
+         reads: ${params.reads_folder}
+         reference genome: ${params.hisat2_index_folder}
+         features (GTF): ${params.features_to_count_folder}
+         sample info file: ${params.sample_info}
+         """
+         .stripIndent()
 
+  println("read files:")
   Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
     .map { file -> tuple(file.simpleName, file)}
@@ -487,7 +496,7 @@ workflow short_read_pipeline_single {
     .fromPath( "${params.hisat2_index_folder}/*.ht2" )
     .collect() 
     .map{ tuple( it.first().simpleName, it)}
-    .view()
+    //.view()
     .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
     .set { hisat2_index_ch }
 
@@ -498,7 +507,9 @@ workflow short_read_pipeline_single {
 
   featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
 
-  //multiqc(featureCounts_paired.out.featureCounts_summary_files)
+  multiqc(featureCounts.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
 
 }
 
@@ -557,3 +568,22 @@ workflow DGE_analysis {
   deseq2(sample_info_ch, counts_ch, r_script_ch)
 }
 
+workflow count_QC_DESEQ {
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  Channel
+    .fromPath("${params.input_path}/*.bam")
+    .view()
+    .set{ bam_to_count_ch }
+
+  featureCounts_paired(bam_to_count_ch, gene_annotation_file_ch)
+  
+  multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
