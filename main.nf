@@ -133,8 +133,8 @@ process sam_to_sorted_bam {
 
   script:
   """
-  samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
   samtools sort -o ${sam_files.baseName}.sorted.bam ${sam_files}
+  samtools flagstat ${sam_files.baseName}.sorted.bam > ${sam_files.baseName}.flagstat.txt
   samtools index ${sam_files.baseName}.sorted.bam  
   """
 }
@@ -142,16 +142,15 @@ process sam_to_sorted_bam {
 process sam_to_sorted_filtered_bam {
   //-bh output in bam and with header
   // -T 
-  /* -F 2324 exclude all reads with following flags
+  /* -F 2324 !exclude! all reads with following flags
         read unmapped (0x4)
         read reverse strand (0x10)
         not primary alignment (0x100)
         supplementary alignment (0x800)
         2308 = reverse strand dabei
-
-          samtools sort -o ${sam_files.baseName}_sorted.bam ${sam_files}
-  samtools index ${sam_files.baseName}_sorted.bam
   */
+  // flagstat of the sorted.filt.bam resulted in only primary mapping reads- TEST OK
+
   tag"$sam_files.baseName"
 
   container "${params.container_samtools}"
@@ -173,7 +172,6 @@ process sam_to_sorted_filtered_bam {
                               -t ${ref_genome_fasta} \
                               -F 2308 | samtools sort -o ${sam_files.baseName}.sorted.filt.bam
   samtools index ${sam_files.baseName}.sorted.filt.bam 
-  samtools flagstat ${sam_files.baseName}.sorted.filt.bam > ${sam_files.baseName}.sorted.filt.flagstat.txt  
   """
 }
 
@@ -188,7 +186,7 @@ process featureCounts {
   path(features)
 
   output:
-  path('*.tsv')
+  path('*.tsv'), emit: count_files_ch
   path('*.summary'), emit: featureCounts_summary_files
 
   script:
@@ -196,6 +194,7 @@ process featureCounts {
   featureCounts -a ${features} \
                 -t exon \
                 -g gene_id \
+                --extraAttributes gene_name \
                 -o ${bam_files.baseName}.counts.tsv ${bam_files} 
   """
 }
@@ -203,8 +202,7 @@ process featureCounts {
 process featureCounts_paired {
   
   // -p for paired end input
-  //−−extraAttributes gene_name  ------------noch nicht getestet
-
+  //--extraAttributes gene_name  ------------noch nicht getestet
 
   tag "$bam_files.baseName"
 
@@ -226,6 +224,7 @@ process featureCounts_paired {
                 -p \
                 -t exon \
                 -g gene_id \
+                --extraAttributes gene_name \
                 -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
@@ -261,6 +260,7 @@ process featureCounts_long {
                 -t exon \
                 -g gene_id \
                 --primary \
+                --extraAttributes gene_name \
                 -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
@@ -304,7 +304,7 @@ process minimap2 {
   """
 }
 
-process pycoQC {//in Pipeline noch nicht getestet
+process pycoQC {//in Pipeline nicht einsetzbar < 64Gb RAM
 
   container "${params.container_pycoQC}"
   publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
@@ -391,7 +391,6 @@ workflow ont_pipeline {
         """
         .stripIndent()
 
-  println("INPUT READ FILES:")
   Channel 
     .fromPath("${params.reads_folder}/*.{fastq,fastq.gz,fq.gz,fq}", checkIfExists: true)
     .map { file -> tuple(file.simpleName, file) }
@@ -401,7 +400,7 @@ workflow ont_pipeline {
   Channel
     .fromPath( "${params.minimap2_index_folder}/*.fa*" )
     .collect()
-    .view()
+    //.view()
     .set { minimap_ref_ch } 
 
   Channel
@@ -438,11 +437,9 @@ workflow short_read_pipeline_paired {
          """
          .stripIndent()
 
-  println("INPUT READ FILES:")
   Channel
     .fromFilePairs( "${params.reads_folder}/*_{R1,R2}*f*q.gz")
     .ifEmpty { exit 1, "no fastq files found at given path" }
-    .view()
     .set{ read_pair_ch }
   
   Channel
@@ -461,6 +458,7 @@ workflow short_read_pipeline_paired {
   fastp_paired(read_pair_ch)
 
   hisat2_paired(fastp_paired.out.trimmed_fastq_pair, hisat2_index_ch)
+  
   sam_to_sorted_bam(hisat2_paired.out.sam_out_ch)
 
   featureCounts_paired(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
@@ -496,16 +494,16 @@ workflow short_read_pipeline_single {
     .fromPath( "${params.hisat2_index_folder}/*.ht2" )
     .collect() 
     .map{ tuple( it.first().simpleName, it)}
-    //.view()
     .ifEmpty { exit 1, "no hisat2 index files found - path was empty" }
     .set { hisat2_index_ch }
 
   fastp_singleend(reads_ch)
 
-  hisat2_singleend(fastp.out.trimmed_fastq, hisat_index_ch)
+  hisat2_singleend(fastp_singleend.out.trimmed_fastq, hisat2_index_ch)
+  
   sam_to_sorted_bam(hisat2_singleend.out.sam_out_ch)
 
-  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, gene_annotation_file_ch)
+  featureCounts(sam_to_sorted_bam.out.sorted_bamfiles, "${params.features_to_count_folder}/*.gtf*")
 
   multiqc(featureCounts.out.featureCounts_summary_files.collect())
 
@@ -577,7 +575,6 @@ workflow count_QC_DESEQ {
 
   Channel
     .fromPath("${params.input_path}/*.bam")
-    .view()
     .set{ bam_to_count_ch }
 
   featureCounts_paired(bam_to_count_ch, gene_annotation_file_ch)
