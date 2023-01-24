@@ -177,6 +177,42 @@ process sam_to_sorted_filtered_bam {
   """
 }
 
+process sam_to_sorted_filtered_bam_short {
+  //-bh output in bam and with header
+  // -T 
+  /* -F 2324 exclude all reads with following flags
+        read unmapped (0x4)
+        read reverse strand (0x10)
+        not primary alignment (0x100)
+        supplementary alignment (0x800)
+        2308 = reverse strand dabei
+
+          samtools sort -o ${sam_files.baseName}_sorted.bam ${sam_files}
+  samtools index ${sam_files.baseName}_sorted.bam
+  */
+  tag"$sam_files.baseName"
+
+  container "${params.container_samtools}"
+  publishDir "$params.out_dir/Nextflow_output/bam_files/", mode: 'copy'
+
+  input:
+  path( sam_files )
+
+  output:
+  path('*.sorted.filt.bam') , emit: out_bamfiles
+  path('*.bai')
+  path('*.txt')
+
+  script:
+  """
+  samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
+  samtools view ${sam_files}  -bh \
+                              -F 2308 | samtools sort -o ${sam_files.baseName}.sorted.filt.bam
+  samtools index ${sam_files.baseName}.sorted.filt.bam 
+  samtools flagstat ${sam_files.baseName}.sorted.filt.bam > ${sam_files.baseName}.sorted.filt.flagstat.txt  
+  """
+}
+
 process featureCounts {
   tag "$bam_files.baseName"
 
@@ -203,6 +239,7 @@ process featureCounts {
 process featureCounts_paired {
   
   // -p for paired end input
+  // --countReadPairs ----not tested, should be specidied according to manual if -p is set
   //−−extraAttributes gene_name  ------------noch nicht getestet
 
 
@@ -224,8 +261,9 @@ process featureCounts_paired {
   featureCounts -a ${features} \
                 -s 2 \
                 -p \
+                --countReadPairs \
                 -t exon \
-                -g gene_id \
+                -g gene_name \
                 -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
@@ -515,6 +553,8 @@ workflow short_read_pipeline_single {
 
 
 
+//-----------------------------------Additional Workflows-----------------------------------//
+
 workflow filter_sam_and_count {
   Channel
     .fromPath("${params.input_path}/*.sam")
@@ -544,21 +584,46 @@ workflow filter_sam_and_count {
 
 }
 
+workflow filter_sam_to_DGE_short {
+  Channel
+    .fromPath("${params.input_path}/*.bam")
+    .view()
+    .set{ sam_input_ch }    
+
+  Channel
+    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .collect()
+    .view()
+    .set { minimap_ref_ch } 
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  sam_to_sorted_filtered_bam_short(sam_input_ch)
+
+  featureCounts_paired(sam_to_sorted_filtered_bam_short.out.out_bamfiles, gene_annotation_file_ch)
+
+  //multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
+
+
 workflow DGE_analysis {
   Channel
     .fromPath("${params.DESEQ2_script}")
     .set{ r_script_ch }
     
-
    Channel
     .fromPath("${params.out_dir}/Nextflow_output/featureCounts", type: "dir" )
     .set{ counts_ch }
  
-
   Channel
     .fromPath("${params.input_path}")
     .set{ counts_ch }
-
 
   Channel
     .fromPath("${params.sample_info}")
