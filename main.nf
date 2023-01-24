@@ -295,7 +295,7 @@ process featureCounts_paired {
                 -p \
                 --countReadPairs \
                 -t exon \
-                -g gene_name \
+                -g gene_id \
                 --extraAttributes gene_name \
                 -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
@@ -312,6 +312,7 @@ process featureCounts_long {
                           (ie. ‘-M’ is ignored). */
   // -O (AllowMultiOverlap) not recommended for RNA-Seq
   //−−extraAttributes gene_name  ------------noch nicht getestet
+  
   tag "$bam_files.baseName"
 
   container "$params.container_subread"
@@ -349,10 +350,10 @@ process minimap2 {
       3) deletion and insertion gap costs are different during chaining; 
       4) the computation of the ‘ms’ tag ignores introns to demote hits to pseudogenes. */
   // -k14 (lt. ONT Protokoll)
-  //-Q	Ignore base quality in the input file 
+  //  -Q	Ignore base quality in the input file 
   // -u finding canonical splice site b=both, f=transcript strand (lt. Paper "The long and the short of it; Dong X, Tian L et. al.")
   // --secondary=no TEST ob secondary alignment die featureCount anzahl verfälscht?
-  // -p 1.0 (sollte bei --secondary=no eigentlich nicht nötig sein?!)
+
   tag "$sample_id"
   cpus 2 //for 6 core cpu with 64Gb RAM and queue = 2
   container "$params.container_minimap2"
@@ -485,7 +486,7 @@ workflow ont_pipeline {
 
   sam_to_sorted_filtered_bam(minimap2.out.minimap2_sam, minimap_ref_ch)
 
-  //pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
+  //pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect())
 
   featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
 

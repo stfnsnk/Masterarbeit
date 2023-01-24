@@ -67,8 +67,18 @@ col_data$condition <- factor(col_data$condition)
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = col_data, design = ~ condition)
 
 #adding gene annotation to DESEQ2 results 
-featureData <- data.frame(gene=rownames(counts))
-mcols(dds) <- DataFrame(mcols(dds), featureData)
+#checking if gene names in the annotation is in the same order as in the DESEQ2 Dataset
+all(rownames(dds) == annotation$geneID)
+
+#reorder the annotation according to dds
+annotation <- annotation[match(rownames(dds), annotation$geneID),]
+
+# !!!check before adding -> Should be ZERO!!!!
+sum(is.na(annotation$Geneid)) == 0
+sum(duplicated(annotation$Geneid)) == 0
+
+#adding new gene annotation to dds metadata
+mcols(dds)$gene_name <- annotation[,2]
 
 # pre-filtering low count genes, not necessary but reduces file size and processing time
 dds <- dds[ rowMeans(counts(dds)) > 4, ]; dds
@@ -85,7 +95,7 @@ dds <- DESeq(dds)
 res05 <- results(dds, alpha = 0.05)
 
 #Order gene expression table by adjusted p value (Benjamini-Hochberg FDR method)
-res05[order(res05$padj),]
+res05 <- res05[order(res05$padj),]
 
 #export gene expression table
 write.csv(as.data.frame(res05), file=paste(resultsNames(dds)[2],"_results.csv"))
