@@ -315,25 +315,17 @@ process pycoQC {
   input:
   path(input_seq_sum)       //guppy sequencing summary 
   path(input_barcode_sum)   // guppy_barcoder summary
-  path(input_bam)           //directory containing bam files, optional if alignment metrics should additionally reported
 
   output:
   path("*")
 
   script:
   """
-  if [ -e $input_bam ]; then 
     pycoQC  -f ${input_seq_sum} \
             -b ${input_barcode_sum} \
-            -a ${input_bam}\
             -o pycoqc_output.html \
             -j pycoqc_output.json
-  else
-    pycoQC  -f ${input_seq_sum} \
-          -b ${input_barcode_sum} \
-          -o pycoqc_output.html \
-          -j pycoqc_output.json
-  fi  
+  
   """
 }
 
@@ -353,7 +345,7 @@ process pycoQC_aln {
   script:
   """
  pycoQC -f ${input_seq_sum} \
-        -a ${input_bam}\
+        -a ${input_bam} \
         -o ${input_bam.simpleName}_pycoqc.html \
         -j ${input_bam.simpleName}_pycoqc.json
   """
@@ -399,7 +391,7 @@ process guppy_barcode_trimming {
 }
 
 
-workflow ont_pipeline {
+workflow guppy_barcoder {
 
   //ONT Pipeline
 
@@ -462,7 +454,7 @@ workflow ONT_QC_aln {
     .fromPath("${params.pyco_bam_files}/*.bai")
     .set{ pyco_input_bai }
   
-  pycoQC_aln(pyco_input_seq_sum.collect(), pyco_input_bam, pyco_input_bai)
+  pycoQC_aln(pyco_input_seq_sum.collect(), pyco_input_bam, pyco_input_bai.collect())
 }
 
 workflow {

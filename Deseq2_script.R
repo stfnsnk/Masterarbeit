@@ -1,9 +1,12 @@
 #!/usr/bin/env R
 
 ## RNA-seq analysis using DESEQ2
-# code template from 
-# - Stephen Turner (https://gist.github.com/stephenturner/f60c1934405c127f09a6)
-# - Hugo Varet (https://github.com/PF2-pasteur-fr/SARTools/blob/master/R/loadCountData.R)
+# code inspiration from 
+# Stephen Turner (https://gist.github.com/stephenturner/f60c1934405c127f09a6)
+#       
+# merging count data into one data.frame - @author Marie-Agnes Dillies and Hugo Varet 
+#                                           (https://github.com/PF2-pasteur-fr/SARTools/blob/master/R/loadCountData.R)
+
 
 args <- commandArgs(TRUE)
 sample_info_file <- args[1]
@@ -21,6 +24,10 @@ Sample_info
 # find the first file of the Sample info file
 first_file <- paste(Sample_info$samplename[1],".counts.tsv",sep = "")
 
+#creating gene annotation for later
+annotation <- first_file[,c(1,7)]
+colnames(annotation) <- c("geneID", "gene_name")
+
 #prepare raw count table with first file
 raw_counts <- read.table(file = first_file , sep="\t", header=TRUE)
 raw_counts <- raw_counts[,c(1,7)]
@@ -37,7 +44,6 @@ for (i in 2:length(Sample_info$samplename)){
          paste(unique(tmp$GeneID[duplicated(tmp$GeneId)]), collapse=", "))
   }
   raw_counts <- merge(raw_counts, tmp, by="geneID", all=TRUE)
-  cat(Sample_info$samplename[i],": ",length(tmp[,Sample_info$samplename[i]])," rows and ",sum(tmp[,Sample_info$samplename[i]]==0)," null count(s)\n",sep="")
 }
 
 #genereate a count matrix: one column per sample, one row per feature
@@ -60,7 +66,7 @@ col_data$condition <- factor(col_data$condition)
 #generate DESEQ2 object
 dds <- DESeqDataSetFromMatrix(countData = counts, colData = col_data, design = ~ condition)
 
-#adding gene colum to DESEQ2 Dataset for visualisation
+#adding gene annotation to DESEQ2 results 
 featureData <- data.frame(gene=rownames(counts))
 mcols(dds) <- DataFrame(mcols(dds), featureData)
 
@@ -80,7 +86,6 @@ res05 <- results(dds, alpha = 0.05)
 
 #Order gene expression table by adjusted p value (Benjamini-Hochberg FDR method)
 res05[order(res05$padj),]
-summary(res05)
 
 #export gene expression table
 write.csv(as.data.frame(res05), file=paste(resultsNames(dds)[2],"_results.csv"))
@@ -89,14 +94,8 @@ write.csv(as.data.frame(res05), file=paste(resultsNames(dds)[2],"_results.csv"))
 #================================Exploration Report========================================#
 #==========================================================================================#
 
-
 library("regionReport")
 
 report <- DESeq2Report(dds,output ="DESEQ-Report", project = "DESEQ2-Exploration", intgroup = "condition", browse = FALSE)
 
 
-#==========================================================================================#
-#==============================interactive html plots======================================#
-#==========================================================================================#
-
-#library(Glimma)
