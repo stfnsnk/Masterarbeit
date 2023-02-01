@@ -1,0 +1,25 @@
+DESEQ2 - log 
+
+sample_info_file: 
+./ONT_results/Sample_Info.txt
+count files: 
+./ONT_results/featureCounts_output/
+File stats: 
+MC3T3_ko1_barcode18: 55401 rows and 37792 null count(s)
+MC3T3_ko2_barcode19: 55401 rows and 38092 null count(s)
+MC3T3_ko3_barcode20: 55401 rows and 37016 null count(s)
+MC3T3_wt1_barcode16: 55401 rows and 37196 null count(s)
+MC3T3_wt2_barcode17: 55401 rows and 37489 null count(s)
+MC3T3_wt3_barcode21: 55401 rows and 37502 null count(s)
+
+Result summary of DESEQ2 output: 
+out of 13046 with nonzero total read count
+adjusted p-value < 0.05
+LFC > 0 (up)       : 492, 3.8%
+LFC < 0 (down)     : 475, 3.6%
+outliers [1]       : 0, 0%
+low counts [2]     : 0, 0%
+(mean count < 5)
+[1] see 'cooksCutoff' argument of ?results
+[2] see 'independentFiltering' argument of ?results
+

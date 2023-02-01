@@ -1,0 +1,25 @@
+DESEQ2 - log 
+
+sample_info_file: 
+./Illumina_results/Sample_Info.txt
+count files: 
+./Illumina_results/featureCounts_output/
+File stats: 
+MC3T3-Ko1_S2: 55401 rows and 34576 null count(s)
+MC3T3-Ko2_S4: 55401 rows and 35228 null count(s)
+MC3T3-Ko3_S6: 55401 rows and 34167 null count(s)
+MC3T3-Wt1_S1: 55401 rows and 34748 null count(s)
+MC3T3-Wt2_S3: 55401 rows and 35210 null count(s)
+MC3T3-Wt3_S5: 55401 rows and 34556 null count(s)
+
+Result summary of DESEQ2 output: 
+out of 15801 with nonzero total read count
+adjusted p-value < 0.05
+LFC > 0 (up)       : 1263, 8%
+LFC < 0 (down)     : 1054, 6.7%
+outliers [1]       : 0, 0%
+low counts [2]     : 0, 0%
+(mean count < 4)
+[1] see 'cooksCutoff' argument of ?results
+[2] see 'independentFiltering' argument of ?results
+

@@ -1,0 +1,7 @@
+samplename	condition	group
+MC3T3_ko1_barcode18	knockout	A
+MC3T3_wt1_barcode16	wildtype	B
+MC3T3_wt2_barcode17	wildtype	B
+MC3T3_ko2_barcode19	knockout	A
+MC3T3_ko3_barcode20	knockout	A
+MC3T3_wt3_barcode21	wildtype	B
