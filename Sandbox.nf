@@ -2,84 +2,6 @@
 
 nextflow.enable.dsl=2
 
-
-process trim_galore {
-  tag "$sample_id"
-
-  container "$params.container_TrimGalore"
-  publishDir "$params.out_dir/trim_galore/"
-
-  input:
-  tuple val(sample_id), path(input_files)
-
-  output:
-  path("*.html")
- 
-  script:
-  """
-  trim_galore --paired \
-              --fastqc \
-              $input_files
-  """
-}
-
-
-process fastp_long_singleend {
-  //following flags are set for ONT long reads
-  // -Q, --disable_quality_filtering (quality filtering is enabled by default. If this option is specified, quality filtering is disabled)  
-  // -L, --disable_length_filtering (length filtering is enabled by default. If this option is specified, length filtering is disabled)
-  // --adapter_fasta (specify a FASTA file to trim reads by all the sequences in this FASTA file (string ([=auto])
-  
-  tag "$sample_id"
-
-  container "${params.container_fastp}" 
-  publishDir "${params.out_dir}/Nextflow_output/fastp/" , mode: "copy"
-
-  input:
-  tuple val(sample_id), path(input_files)
-
-  output:
-  path("*.json")
-  path("*.html")
-  path("*_trimmed.fastq.gz") , emit: trimmed_fastq
-
-
-  script:
-  """
-  fastp -i ${input_files[0]} \
-        -o "${sample_id}_trimmed.fastq.gz" \
-        --adapter_fasta
-        --trim_poly_x \
-        --disable_quality_filtering \
-        --disable_length_filtering \
-        --html "${sample_id}.html" \
-        --json "${sample_id}.json" \
-        --report_title "fastp report: $sample_id" \
-        --overrepresentation_analysis
-  """
-}
-
-
-process fastqc {
-  tag "$sample_id"
-
-  container "$params.container_TrimGalore"
-  publishDir "$params.out_dir/FASTQC/"
-
-  input:
-  tuple val(sample_id), path(input_files)
-
-  output:
-  path("*.html"), mode: move
-  path("*.{fastq.gz,fastq,fq.gz,fq}"), mode: move
-
-  script:
-  """
-  fastqc $input_files
-  """
-}
-
-
 process first_line {
 
   tag "${reads.name.replaceAll("['.fastq.gz'|'.fastq']","")}"
@@ -97,33 +19,6 @@ process first_line {
   """
 
 }
-
-process hisat2_to_bam {
-
-  tag "$reads.baseName"
-  
-  container "${params.container_HISAT2samtools}"
-  publishDir "$params.out_dir/Nextflow_output/hisat/"
-
-  input:
-  path(reads)
-
-  output:
-  path '*.bam' , emit: hisat2_bam_out_ch
-  path '*.txt'
-
-  script:
-  """
-  INDEX=`find -L ${params.hisat2_index}/ -name "*.1.ht2" | sed 's/.1.ht2//'` 
-  hisat2 --rna-strandness R \
-        -x \$INDEX \
-        -U $reads \
-        -S ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam &> ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.hisat_summary.txt
-  samtools flagstat ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam > ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.flagstat.txt
-  samtools sort -o ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}_sorted.bam ${reads.name.replaceAll("['.fastq.gz'|'.fastq']",'')}.sam
-  """
-}
-
 
 process sam_to_sorted_bam {
   tag"$sam_files.baseName"
@@ -178,36 +73,131 @@ process sam_to_sorted_filtered_bam {
   samtools flagstat ${sam_files} > ${sam_files.baseName}.flagstat.txt
   samtools view ${sam_files}  -bh \
                               -t ${ref_genome_fasta} \
-                              -F 2308 | samtools sort -o ${sam_files.baseName}.sorted.filt.bam
+                              -F 2324 | samtools sort -o ${sam_files.baseName}.sorted.filt.bam
   samtools index ${sam_files.baseName}.sorted.filt.bam 
   samtools flagstat ${sam_files.baseName}.sorted.filt.bam > ${sam_files.baseName}.sorted.filt.flagstat.txt  
   """
 }
 
-process featureCounts {
+process multiqc {
+
+  container "$params.container_multiqc"
+  containerOptions "--volume ${params.out_dir}/Nextflow_output:/multiqc_workdir"
+  
+  publishDir "${params.out_dir}/Nextflow_output/multiqc/", mode: "move"
+  
+  input:
+  path(input_files)
+  
+  script:
+  """
+  cd /multiqc_workdir
+  multiqc .
+  """
+}
+
+process featureCounts_long {
+  
+  //the -L flag turns on long-read counting mode
+  /* --primary (primaryOnly) If specified, only primary alignments will be counted. 
+                          Primary and secondary alignments are identified using 
+                          bit 0x100 in the Flag field of SAM/BAM files. 
+                          All primary alignments in a dataset will be counted 
+                          no matter they are from multimapping reads or not 
+                          (ie. ‘-M’ is ignored). */
+  // -O (AllowMultiOverlap) not recommended for RNA-Seq
+  //−−extraAttributes gene_name  ------------noch nicht getestet
+  
   tag "$bam_files.baseName"
 
   container "$params.container_subread"
-  publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "move"
+  publishDir "$params.out_dir/Nextflow_output/featureCounts/", mode: "copy"
 
   input:
   path(bam_files)
-  path(features)
+  path(features) 
 
   output:
-  path('*.tsv')
+  path('*.tsv'), emit: count_files_ch
   path('*.summary'), emit: featureCounts_summary_files
 
   script:
   """
   featureCounts -a ${features} \
+                -L \
                 -t exon \
                 -g gene_id \
-                -o ${bam_files.baseName}.counts.tsv ${bam_files} 
+                --primary \
+                --extraAttributes gene_name \
+                -o ${bam_files.simpleName}.counts.tsv ${bam_files} 
   """
 }
 
+
 process minimap2 {
+  
+  //-a output in SAM format
+  // -x setting preset = 
+      /* splice =Long-read spliced alignment
+          (-k15 -w5 --splice -g2k -G200k -A1 -B2 -O2,32 -E1,0 -b0 -C9 -z200 -ub --junc-bonus=9 --cap-sw-mem=0 --splice-flank=yes). 
+          In the splice mode, 
+          1) long deletions are taken as introns and represented as the ‘N’ CIGAR operator; 
+          2) long insertions are disabled; 
+          3) deletion and insertion gap costs are different during chaining; 
+          4) the computation of the ‘ms’ tag ignores introns to demote hits to pseudogenes. */
+  // -k14 (lt. ONT Protokoll)
+  //  -Q	Ignore base quality in the input file 
+  // -u finding canonical splice site b=both, f=transcript strand (lt. Paper "The long and the short of it; Dong X, Tian L et. al.")
+  // --secondary=no TEST ob secondary alignment die featureCount anzahl verfälscht?
+
+  tag "$sample_id"
+  cpus 2 //for 6 core cpu with 64Gb RAM and queue = 2
+  container "$params.container_minimap2"
+
+  input:
+  tuple val(sample_id), path(input_files)
+  path( minimap2_index )
+
+  output:
+  path("*.sam"), emit: minimap2_sam
+
+  script:
+  """
+  minimap2 -a \
+           -x splice \
+           -k14 \
+           -uf \
+           --secondary=no \
+           ${minimap2_index} \
+           $input_files > ${sample_id}.sam   
+  """
+}
+
+process deseq2 {
+  
+  tag "differential gene expression analysis with DESEQ2"
+  
+  container "$params.container_deseq2"
+  
+  publishDir "${params.out_dir}/Nextflow_output/DESEQ2/", mode: "move"
+
+
+  input:
+  path( sample_info_file )
+  path( feature_count_files )
+  path( script )
+
+  output:
+  path("*")
+
+  script:
+  """
+  Rscript $script $sample_info_file $feature_count_files
+  """
+}
+
+
+process minimap2_OLD {
   tag "$input_files.baseName"
 
   container "$params.container_minimap2"
@@ -239,8 +229,31 @@ process download_mouse_reference {
   wget -nc -P reference_genome_GRCm38/Minimap2_reference ${params.minimap2_GRCm38_ref_url} 
   """
 }
+process merge_fastq {
+  tag "$sample_id"
 
+  publishDir "$params.out_dir/fastq_merged" , mode: "move"
 
+  input:
+  tuple val(sample_id), path(input_files)
+
+  output:
+  path("*")
+
+  script:
+  """
+  cd $launchDir
+  
+  for read_nr in [1,2]; \
+    do \
+    for i in 'ls *_S?*_R${read_nr}*.fastq.gz'; \
+      do  \
+        head $i \
+      done \
+    done
+  """
+
+}
 process setup {
 
     script:
@@ -253,7 +266,9 @@ process setup {
     """
 }
 
-process fastp {
+
+
+process fastp_OLD {
   tag "$sample_id"
 
   container "quay.io/biocontainers/fastp:0.23.2--h5f740d0_3" 
@@ -281,94 +296,9 @@ process fastp {
 }
 
 
-process merge_fastq {
-  tag "$sample_id"
 
-  publishDir "$params.out_dir/fastq_merged" , mode: "move"
 
-  input:
-  tuple val(sample_id), path(input_files)
-
-  output:
-  path("*")
-
-  script:
-  """
-  cd $launchDir
-  
-  for read_nr in [1,2]; \
-    do \
-    for i in 'ls *_S?*_R${read_nr}*.fastq.gz'; \
-      do  \
-        head $i \
-      done \
-    done
-  """
-
-}
-
-process pycoQC {
-  cpus 6
-  container "${params.container_pycoQC}"
-  publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
-  
-  input:
-  path(input_seq_sum)       //guppy sequencing summary 
-  path(input_barcode_sum)   // guppy_barcoder summary
-
-  output:
-  path("*")
-
-  script:
-  """
-    pycoQC  -f ${input_seq_sum} \
-            -b ${input_barcode_sum} \
-            -o pycoqc_output.html \
-            -j pycoqc_output.json
-  
-  """
-}
-
-process pycoQC_aln {
-  cpus 6
-  container "${params.container_pycoQC}"
-  publishDir "${params.out_dir}/Nextflow_output/pycoQC/", mode: "move"
-  
-  input:
-  path(input_seq_sum)       //guppy sequencing summary 
-  path(input_bam)           //directory containing bam files, optional if alignment metrics should additionally reported
-  path(input_bai)
-
-  output:
-  path("*")
-
-  script:
-  """
- pycoQC -f ${input_seq_sum} \
-        -a ${input_bam} \
-        -o ${input_bam.simpleName}_pycoqc.html \
-        -j ${input_bam.simpleName}_pycoqc.json
-  """
-}
-
-process multiqc {
-
-  container "${params.container_multiqc}"
-  publishDir "${params.out_dir}/Nextflow_output/multiqc/", mode: "move"
-  
-  input:
-  path(input_path)
-
-  output:
-  path("*")
-
-  script:
-  """
-  cd ${input_path}
-  multiqc .
-  """
-}
-
+//------------------------------------ONT TRIMMING TEST--------------------------------------//
 process guppy_barcode_trimming { 
   tag "$sample_id"
 
@@ -390,7 +320,6 @@ process guppy_barcode_trimming {
   """
 }
 
-
 workflow guppy_barcoder {
 
   //ONT Pipeline
@@ -406,23 +335,10 @@ workflow guppy_barcoder {
   guppy_barcode_trimming(reads_ch)
 
 }
-
-workflow test {
-  Channel
-    .fromPath("${params.input_path}/*")
-    .map { file -> tuple(file.simpleName, file)}
-    .view()
-    .set{reads_ch}
+//-------------------------------------------------------------------------------------------//
 
 
-}
 
-workflow featureCount_merge {
-  Channel
-    .fromPath("${params.input_path}")
-    .collect()
-
-}
 
 workflow ONT_QC {
   Channel
@@ -457,41 +373,143 @@ workflow ONT_QC_aln {
   pycoQC_aln(pyco_input_seq_sum.collect(), pyco_input_bam, pyco_input_bai.collect())
 }
 
-workflow {
 
-/*  Channel
-     .fromFilePairs("${params.reads_folder}/*_L00?_R{1,2}*.fastq*", checkIfExists: true)
+//-----------------------------------Additional Workflows-----------------------------------//
+//----------------------ADDITIONAL CONFIGURATION IS NEEDED BEFORE USE-----------------------//
+//----------------------------params.input_path is your friend------------------------------//
+
+workflow sam_to_DESEQ_long {
+  Channel
+    .fromPath("${params.input_path}/*.sam")
     .view()
-    .set{ read_pair_ch }
- */
-  //fastp(read_pair_ch)
+    .set{ sam_input_ch }    
 
-/*   Channel
-  .fromFilePairs("${params.reads_folder}/*Ko1_{R1,R2}*fastq.gz", checkIfExists: true)
-  .view()
-  .set{ read_pair_ch }
- */
+  Channel
+    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .collect()
+    .view()
+    .set { minimap_ref_ch } 
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  sam_to_sorted_filtered_bam(sam_input_ch, minimap_ref_ch)
+
+  //pycoQC("${params.pyco_seq_summary}", "${params.pyco_barcode_summary}", sam_to_sorted_filtered_bam.out.out_bamfiles.collect()) //noch nicht getestet!
+
+  featureCounts_long(sam_to_sorted_filtered_bam.out.out_bamfiles, gene_annotation_file_ch)
+
+  multiqc(featureCounts_long.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_long.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
+
+workflow filter_sam_to_DGE_short {//REV Filter makes no sense?!
+  Channel
+    .fromPath("${params.input_path}/*.sam")
+    .view()
+    .set{ sam_input_ch }    
+
+  Channel
+    .fromPath( "${params.minimap2_index_folder}/*.fa*" )
+    .collect()
+    .view()
+    .set { minimap_ref_ch } 
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  sam_to_sorted_filtered_bam_short(sam_input_ch)
+
+  featureCounts_paired(sam_to_sorted_filtered_bam_short.out.out_bamfiles, gene_annotation_file_ch)
+
+  //multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
+
+workflow DGE_analysis {
+  Channel
+    .fromPath("${params.DESEQ2_script}")
+    .set{ r_script_ch }
+    
+   Channel
+    .fromPath("${params.out_dir}/Nextflow_output/featureCounts", type: "dir" )
+    .set{ counts_ch }
+ 
+  Channel
+    .fromPath("${params.input_path}")
+    .set{ counts_ch }
+
+  Channel
+    .fromPath("${params.sample_info}")
+    .set{ sample_info_ch }
+    
+
+  deseq2(sample_info_ch, counts_ch, r_script_ch)
+}
+
+workflow count_QC_DESEQ_paired {
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  Channel
+    .fromPath("${params.input_path}/*.bam")
+    .set{ bam_to_count_ch }
+
+  featureCounts_paired(bam_to_count_ch, gene_annotation_file_ch)
+  
+  //multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_paired.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
+
+workflow count_QC_DESEQ_long {
+
+  Channel
+    .fromPath( "${params.features_to_count_folder}/*.gtf*" )
+    .collect()
+    .set{ gene_annotation_file_ch }
+
+  Channel
+    .fromPath("${params.input_path}/*.bam")
+    .set{ bam_to_count_ch }
+
+  featureCounts_long(bam_to_count_ch, gene_annotation_file_ch)
+  
+  //multiqc(featureCounts_paired.out.featureCounts_summary_files.collect())
+
+  deseq2("${params.sample_info}", featureCounts_long.out.count_files_ch.toList(), "${params.DESEQ2_script}") 
+
+}
+
+
+workflow NanoPlot { //getestet mit 1 und 3 bam files gleichzeitig - hängt nach einger Zeit, bricht jedoch nicht ab
+  Channel
+    .fromPath("${params.pyco_bam_files}")
+    .view()
+    .set{ pyco_input_bam }
+  /*
+  Channel
+    .fromPath("${params.pyco_bam_files}/*.bai")
+    .set{ pyco_input_bai }
+  pyco_input_bai.collect()
+  */
+  NanoPlot(pyco_input_bam)
+}
+
+workflow {
 
  //download_mouse_reference()
  
- //multiqc("${params.out_dir}/Nextflow_output/")
-
- /*     Channel
-        .fromPath("${params.reads_folder}/*.sam", type: 'file', checkIfExists: true)
-        .view()
-        .set{ sam_files_ch }
- */
-    //minimap2(reads_ch)
-
-/*     Channel 
-        .fromPath("${params.bam_files_to_count}/*.bam", type: 'file', checkIfExists: true)
-        .view()
-        .set{bam_file_ch}
-
-    featureCounts(bam_file_ch, params.features_to_count)
- 
- */
-
-
-
  }

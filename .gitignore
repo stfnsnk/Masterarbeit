@@ -1,2 +1,4 @@
-reference_genome/
+reference_genome/Gene_annotation/*
+reference_genome/Hisat_Index/*
+reference_genome/Minimap2_reference/*
 ONT_barcodes_NB01-24.fasta
