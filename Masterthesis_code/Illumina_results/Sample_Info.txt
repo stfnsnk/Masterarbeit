@@ -1,0 +1,7 @@
+samplename	condition	group
+MC3T3-Ko1_S2	knockout	A
+MC3T3-Ko2_S4	knockout	A
+MC3T3-Ko3_S6	knockout	A
+MC3T3-Wt1_S1	wildtype	B
+MC3T3-Wt2_S3	wildtype	B
+MC3T3-Wt3_S5	wildtype	B
